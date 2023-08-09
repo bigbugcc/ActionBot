@@ -1,0 +1,54 @@
+name: Admin.NET Sync
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:    
+      - name: Init Env
+        run: |
+          sudo -E apt-get -qq install git curl wget gnutls-bin openssl -y  
+          sudo echo "180.76.198.77 gitee.com" | sudo tee -a /etc/hosts
+          sudo echo "182.255.33.134 gitee.com" | sudo tee -a /etc/hosts
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
+
+      - name: Configure Git
+        working-directory: /workdir
+        run: |
+          git config --global user.name "ActionBot"
+          git config --global user.email "ibigbugcc@gamil.com"
+
+      - name: Clone Admin.NET
+        working-directory: /workdir
+        run: |
+          git clone https://github.com/bigbugcc/Admin.NET.git
+          cd Admin.NET
+          git checkout next-
+
+      - name: Sync with Upstream to next branch
+        working-directory: /workdir/Admin.NET
+        run: |
+          git remote add upstream https://gitee.com/zuohuaijun/Admin.NET.git
+          git fetch upstream
+          git merge upstream/next --no-edit
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.ACCESS_TOKEN }}
+          directory: /workdir/Admin.NET
+          repository: bigbugcc/Admin.NET
+          force: true
+
+      - name: Delete workflow runs
+        uses: GitRML/delete-workflow-runs@main
+        with:
+          retain_days: 1
+          keep_minimum_runs: 2
