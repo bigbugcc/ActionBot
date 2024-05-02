@@ -6,7 +6,7 @@ on:
 env:
   repo: 'https://github.com/MHSanaei/3x-ui.git'
   docker-repo: 'bigbugcc/3x-ui'
-  docker-file: './Dockerfile'
+  docker-file-path: '.'
   platforms: 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64'
 
 jobs:  
@@ -17,15 +17,15 @@ jobs:
       - name: Init Env
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
-          sudo mkdir -p ./workdir
-          sudo chown $USER:$GROUPS ./workdir
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
 
       - name: Clone Repo
         run: |
-          git clone ${{ env.repo }} ./workdir
+          git clone ${{ env.repo }} /workdir
       
       - name: Repo Tag
-        working-directory: ./workdir
+        working-directory: /workdir
         id: tag
         run: |
           echo "repo_tag=$(git describe --tags `git rev-list --tags --max-count=1`)" >> $GITHUB_OUTPUT
@@ -50,9 +50,9 @@ jobs:
         id: docker
         uses: docker/build-push-action@v5
         with:
-          context: ./workdir
+          context: /workdir
           push: true
-          file: ${{ env.docker-file }}
+          file: ${{ env.docker-file-path }}
           platforms: ${{ env.platforms }}
           tags: | 
             ${{ env.docker-repo }}:latest
