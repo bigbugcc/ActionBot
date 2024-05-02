@@ -1,0 +1,77 @@
+name: 3x-ui Docker
+on:
+  repository_dispatch:
+  workflow_dispatch:
+
+env:
+  repo: 'https://github.com/MHSanaei/3x-ui.git'
+  docker-repo: 'bigbugcc/3x-ui'
+  docker-file: './Dockerfile'
+  platforms: 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64'
+
+jobs:  
+  build:  
+    runs-on: ubuntu-latest
+        
+    steps:  
+      - name: Init Env
+        run: |
+          sudo timedatectl set-timezone Asia/Shanghai
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GROUPS /workdir
+
+      - name: Clone Repo
+        run: |
+          git clone ${{ env.repo }} /workdir
+          cd /workdir
+      
+      - name: Repo Tag
+        id: tag
+        run: |
+          echo "repo_tag=$(git describe --tags `git rev-list --tags --max-count=1`)" >> $GITHUB_OUTPUT
+          echo "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT >> $GITHUB_OUTPUT
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build docker
+        id: docker
+        uses: docker/build-push-action@v3
+        with:
+          context: ./
+          push: true
+          file: ${{ env.docker-file }}
+          platforms: ${{ env.platforms }}
+          tags: | 
+            ${{ env.docker-repo }}:latest
+            ${{ env.docker-repo }}:v${{ steps.tag.outputs.repo_tag }}
+      
+      - name: Image digest
+        run: echo ${{ steps.docker.outputs.digest }}
+        
+      - name: Create Release
+        id: release
+        uses: softprops/action-gh-release@v1
+        if: ${{ steps.docker.outputs.imageid!='' }} && ${{ success() }} && ${{ !cancelled() }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          name: ${{ github.workflow }} - v${{ steps.tag.outputs.repo_tag }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          prerelease: false
+          body: | 
+            Release Note:
+            - [ DockerHub🐬 ](https://hub.docker.com/r/${{ env.docker-repo }})
+          files: | 
+            ${{ steps.docker.outputs.metadata }}
