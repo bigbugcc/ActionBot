@@ -17,14 +17,15 @@ jobs:
       - name: Init Env
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
-          sudo mkdir -p /workdir
-          sudo chown $USER:$GROUPS /workdir
+          sudo mkdir -p ./workdir
+          sudo chown $USER:$GROUPS ./workdir
 
       - name: Clone Repo
         run: |
-          git clone ${{ env.repo }} /workdir
+          git clone ${{ env.repo }} ./workdir
       
       - name: Repo Tag
+        working-directory: ./workdir
         id: tag
         run: |
           echo "repo_tag=$(git describe --tags `git rev-list --tags --max-count=1`)" >> $GITHUB_OUTPUT
@@ -47,9 +48,9 @@ jobs:
 
       - name: Build docker
         id: docker
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v5
         with:
-          context: /workdir
+          context: ./workdir
           push: true
           file: ${{ env.docker-file }}
           platforms: ${{ env.platforms }}
@@ -63,7 +64,7 @@ jobs:
       - name: Create Release
         id: release
         uses: softprops/action-gh-release@v1
-        if: ${{ steps.docker.outputs.digest!='' }} && ${{ success() }} && ${{ !cancelled() }}
+        if: success() && !cancelled()
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           name: ${{ github.workflow }} - v${{ steps.tag.outputs.repo_tag }}
