@@ -23,7 +23,6 @@ jobs:
       - name: Clone Repo
         run: |
           git clone ${{ env.repo }} /workdir
-          cd /workdir
       
       - name: Repo Tag
         id: tag
@@ -50,7 +49,7 @@ jobs:
         id: docker
         uses: docker/build-push-action@v3
         with:
-          context: ./
+          context: /workdir
           push: true
           file: ${{ env.docker-file }}
           platforms: ${{ env.platforms }}
@@ -64,7 +63,7 @@ jobs:
       - name: Create Release
         id: release
         uses: softprops/action-gh-release@v1
-        if: ${{ steps.docker.outputs.imageid!='' }} && ${{ success() }} && ${{ !cancelled() }}
+        if: ${{ steps.docker.outputs.digest!='' }} && ${{ success() }} && ${{ !cancelled() }}
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           name: ${{ github.workflow }} - v${{ steps.tag.outputs.repo_tag }}
