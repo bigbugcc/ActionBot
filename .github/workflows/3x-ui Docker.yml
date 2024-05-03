@@ -51,12 +51,14 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: /workdir
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           push: true
           file: ${{ env.docker-file-path }}
           platforms: ${{ env.platforms }}
           tags: | 
             ${{ env.docker-repo }}:latest
-            ${{ env.docker-repo }}:v${{ steps.tag.outputs.repo_tag }}
+            ${{ env.docker-repo }}:${{ steps.tag.outputs.repo_tag }}
       
       - name: Image digest
         run: echo ${{ steps.docker.outputs.digest }}
@@ -67,7 +69,7 @@ jobs:
         if: success() && !cancelled()
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: ${{ github.workflow }} - v${{ steps.tag.outputs.repo_tag }}
+          name: ${{ github.workflow }} - ${{ steps.tag.outputs.repo_tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: false
           body: | 
