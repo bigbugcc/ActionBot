@@ -11,10 +11,9 @@ jobs:
 
     steps:
     - name: Delete workflow runs
-      uses: GitRML/delete-workflow-runs@main
+      uses: bigbugcc/delete-workflow-runs@main
       with:
-        retain_days: 6
-        keep_minimum_runs: 4
+        keep_minimum_runs: 2
 
     - name: Remove old Releases
       uses: dev-drprasad/delete-older-releases@v0.2.0
