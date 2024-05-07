@@ -174,9 +174,9 @@ async function main() {
             const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
             const path = `repo_keys/`;
             // Create cache folder
-            fs.mkdirSync(path);
+            await fs.mkdirSync(path);
             //create cache file
-            fs.writeFileSync(path + key, Buffer.from(key, 'utf-8'), 'binary');
+            await fs.writeFileSync(path + key, Buffer.from(key, 'utf-8'), 'binary');
             const cacheId = await cache.saveCache(`repo_keys/${key}`, key)
             console.log(`🦄 Cache key saved: ${cacheId}`);
         } catch (error) {
