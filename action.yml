@@ -1,0 +1,20 @@
+name: 'AutoTrigger'
+description: 'Auto Trigger Github Action'
+inputs:
+  token:
+    description: 'The token used to authenticate.'
+    required: true
+    default: ${{ github.token }}
+
+  repository:
+    description: 'The name of the repository.'
+    required: true
+    default: ${{ github.repository }}
+
+runs:
+  using: 'node20'
+  main: 'bin/main.js'
+
+branding:
+  icon: 'activity'
+  color: 'red'

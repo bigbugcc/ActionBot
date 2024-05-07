@@ -1,58 +1,15 @@
-const { authtoken,crepos} = require('./auth');
+const { authtoken, crepos } = require('./auth');
 const { Octokit } = require("octokit");
 let octokit = null;
 const core = require("@actions/core");
+const cache = require('@actions/cache');
 const request = require('request');
 const fs = require('fs');
 const yaml = require('js-yaml');
 const path = require('path');
 const header = { 'X-GitHub-Api-Version': '2022-11-28' };
 const workflowInfo = new Array();
-
-function checkRepoCommitId() {
-    workflowInfo.forEach(element => {
-        const splitRepository = element.repo_url.split('/');
-        if (splitRepository.length < 3) {
-            throw new Error(`Invalid repository '${element.repo_url}'. Expected format {owner}/{repo}.`);
-        }
-        const repo_owner = splitRepository[3];
-        const repo_name = splitRepository[4].split('.')[0];
-        if(element.repo_url.includes('github.com')){
-            octokit.request('GET /repos/{owner}/{repo}/commits', {
-                owner: repo_owner,
-                repo: repo_name,
-                headers: header
-            }).then((response) => {
-                const commitId = response.data[0].sha;
-    
-            }).catch((error) => {
-                console.log(error);
-            });
-
-        }else if(element.repo_url.includes('gitee.com'))
-        {
-            const options = {
-                url: `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                json: true
-            };
-            request(options, (error, response, body) => {
-                if (error) {
-                    console.log(error);
-                } else {
-                    const commitId = body[0].sha;
-                }
-            });
-        }else{
-            core.setFailed('Invalid repository');
-        }
-
-        
-    })
-}
+const updatedWorkflows = new Array();
 
 function readDirAsync(path) {
     return new Promise((resolve, reject) => {
@@ -64,6 +21,54 @@ function readDirAsync(path) {
             }
         });
     });
+}
+
+async function getCommitIds() {
+    const promises = workflowInfo.map(async (element) => {
+        const splitRepository = element.repo_url.split('/');
+        if (splitRepository.length < 4) {
+            core.setFailed('Invalid repository');
+            throw new Error(`Invalid repository '${element.repo_url}'. Expected format {owner}/{repo}.`);
+        }
+        const repo_owner = splitRepository[3];
+        const repo_name = splitRepository[4].replace('.git', '');
+
+        if (element.repo_url.includes('github.com')) {
+            const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
+                owner: repo_owner,
+                repo: repo_name,
+                headers: header
+            });
+            const commitId = response.data[0].sha;
+            console.log(commitId);
+            element.commitId = commitId;
+        } else if (element.repo_url.includes('gitee.com')) {
+            const options = {
+                url: `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`,
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                json: true
+            };
+            const body = await new Promise((resolve, reject) => {
+                request(options, (error, response, body) => {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(body);
+                    }
+                });
+            });
+            const commitId = body[0].sha;
+            console.log(commitId);
+            element.commitId = commitId;
+        } else {
+            core.setFailed('Invalid repository');
+        }
+    });
+
+    await Promise.all(promises);
 }
 
 async function main() {
@@ -93,7 +98,7 @@ async function main() {
 
     workflowslist.data.workflows.forEach(element => {
         if (element.name != "AutoTrigger") {
-            workflowInfo.push({ id: element.id, name: element.name, repo_url: '' });
+            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '' });
         }
     });
 
@@ -114,22 +119,70 @@ async function main() {
             console.log(e);
         }
     }
-    if (workflowInfo.length < 1) { console.log('Not Workflow'); return; }
+    if (workflowInfo.length < 1) { core.setFailed('Not Workflow'); return; }
 
-    checkRepoCommitId();
+    await getCommitIds();
 
-    // octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
-    //     owner: repo_owner,
-    //     repo: repo_name,
-    //     workflow_id: element.id,
-    //     ref: 'main',
-    //     inputs: {},
-    //     headers: header
-    // }).then((response) => {
-    //     console.log(response);
-    // }).catch((error) => {
-    //     console.log(error);
-    // });
+    //获取cache key
+    const caches = await octokit.request('GET /repos/{owner}/{repo}/actions/caches', {
+        owner: repo_owner,
+        repo: repo_name,
+        headers: header
+    })
+
+    if (caches.data.actions_caches.length > 0) {
+        const keys = caches.data.actions_caches;
+        //check repo updated
+        for (const element of workflowInfo) {
+            //make repo cache key
+            let key = `${element.id}-${element.name}-${element.commitId}`;
+            key = key.replace(/\s/g, '');
+            //find cache key
+            const cacheKey = keys.find(e => e.key == key);
+            if (cacheKey) {
+                console.log(`repo ：${element.name} Source do not update!`);
+            } else {
+                console.log(`repo ：${element.name} Source is updated!`);
+                //trigger workflow
+                updatedWorkflows.push(element);
+            }
+        }
+    } else {
+        workflowInfo.forEach(element => {
+            updatedWorkflows.push(element);
+        });
+        console.log('🦄 Not Found Cache! will trigger all workflows!')
+    }
+
+    //trigger workflow
+    for (const element of updatedWorkflows) {
+        await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+            owner: repo_owner,
+            repo: repo_name,
+            workflow_id: element.id,
+            ref: 'main',
+            inputs: {},
+            headers: header
+        }).then((response) => {
+            console.log(response);
+        }).catch((error) => {
+            console.log(error);
+        });
+
+        try {
+            //write cache
+            const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
+            const path = `repo_keys/`;
+            // Create cache folder
+            fs.mkdirSync(path);
+            //create cache file
+            fs.writeFileSync(path + key, Buffer.from(key, 'utf-8'), 'binary');
+            const cacheId = await cache.saveCache(`repo_keys/${key}`, key)
+            console.log(`🦄 Cache key saved: ${cacheId}`);
+        } catch (error) {
+            console.log(error);
+            core.setFailed(error);
+        }
+    }
 }
-
 main();
