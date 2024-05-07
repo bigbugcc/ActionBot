@@ -2,23 +2,6 @@ name: AutoTrigger
 
 on:
   workflow_dispatch:
-    inputs:
-      ACCESS_TOKEN:
-        description: 'Personal Access Token'
-        required: true
-        default: ${{ secrets.ACCESS_TOKEN }}
-      REPO:
-        description: 'Repository Name'
-        required: true
-        default: ${{ github.repository }}
-      OWNER:
-        description: 'Repository Owner'
-        required: true
-        default: ${{ github.repository_owner }}
-      BRANCH:
-        description: 'Branch Name'
-        required: true
-        default: ${{ github.ref }}
   schedule:
     - cron: '30 */4 * * *'
 

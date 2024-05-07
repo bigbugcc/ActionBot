@@ -7,7 +7,7 @@ on:
     - cron: "30 */4 * * *"
 
 env:
-  repo: 'https://github.com/bigbugcc/Admin.NET.git'
+  repo: 'https://gitee.com/zuohuaijun/Admin.NET.git'
 
 jobs:
   sync:
@@ -31,7 +31,7 @@ jobs:
       - name: Clone Admin.NET
         working-directory: /workdir
         run: |
-          git clone ${{ env.repo }}
+          git clone https://github.com/bigbugcc/Admin.NET.git
           cd Admin.NET
           git checkout next-
 
