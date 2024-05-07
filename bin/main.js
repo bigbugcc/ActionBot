@@ -190,9 +190,7 @@ async function main() {
             const files = await readDirAsync(path);
             console.log(`🦄 Directory files : ${files}`);
             
-            const paths = [
-                `${cachePath}`
-            ]
+            const paths = [`${cachePath}`]
             const cacheId = await cache.saveCache(paths, key)
             console.log(`🦄 Cache key saved: ${cacheId}`);
         } catch (error) {
