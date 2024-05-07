@@ -185,7 +185,11 @@ async function main() {
             await mkdirp(path);
             //create cache file
             await fs.writeFileSync(path + key, Buffer.from(key, 'utf-8'), 'binary');
-            const cacheId = await cache.saveCache(`repo_keys/${key}`, key)
+
+            const files = await readDirAsync(path);
+            console.log(`🦄 Directory files : ${files}`);
+
+            const cacheId = await cache.saveCache(path+key, key)
             console.log(`🦄 Cache key saved: ${cacheId}`);
         } catch (error) {
             console.log(error);
