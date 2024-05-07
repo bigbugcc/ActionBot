@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "30 */4 * * *"
 
+env:
+  repo: 'https://github.com/bigbugcc/Admin.NET.git'
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -28,14 +31,14 @@ jobs:
       - name: Clone Admin.NET
         working-directory: /workdir
         run: |
-          git clone https://github.com/bigbugcc/Admin.NET.git
+          git clone ${{ env.repo }}
           cd Admin.NET
           git checkout next-
 
       - name: Sync with Upstream to next branch
         working-directory: /workdir/Admin.NET
         run: |
-          git remote add upstream https://gitee.com/zuohuaijun/Admin.NET.git
+          git remote add upstream ${{ env.repo }}
           git fetch upstream
           git merge upstream/next --no-edit
 
