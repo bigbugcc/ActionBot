@@ -10,12 +10,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Init Env
-      run: |
-        sudo -E apt-get -qq install git curl wget openssl -y  
-        sudo echo "180.76.198.77 gitee.com" | sudo tee -a /etc/hosts
-        sudo echo "182.255.33.134 gitee.com" | sudo tee -a /etc/hosts
-
     - uses: actions/checkout@v4
     - name: Use Node.js
       uses: actions/setup-node@v4
@@ -24,6 +18,12 @@ jobs:
 
     - name: Install dependencies
       run: npm install
+
+    - name: AutoTrigger
+      uses: bigbugcc/ActionBot@main
+      with:
+        token: ${{ secrets.ACCESS_TOKEN }}
+        repository: ${{ github.repository }}
 
     - name: Delete workflow runs
       uses: bigbugcc/delete-workflow-runs@main
