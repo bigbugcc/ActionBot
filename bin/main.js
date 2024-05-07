@@ -71,6 +71,13 @@ async function getCommitIds() {
     await Promise.all(promises);
 }
 
+function mkdirp(dir) {
+    if (fs.existsSync(dir)) { return true }
+    const dirname = path.dirname(dir)
+    mkdirp(dirname);
+    fs.mkdirSync(dir);
+}
+
 async function main() {
     let token = core.getInput('token');
     let repository = core.getInput('repository');
@@ -174,7 +181,7 @@ async function main() {
             const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
             const path = `repo_keys/`;
             // Create cache folder
-            await fs.mkdirSync(path);
+            await mkdirp(path);
             //create cache file
             await fs.writeFileSync(path + key, Buffer.from(key, 'utf-8'), 'binary');
             const cacheId = await cache.saveCache(`repo_keys/${key}`, key)
