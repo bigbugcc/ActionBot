@@ -181,18 +181,21 @@ async function main() {
             const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
             console.log(`🦄 Cache key: ${key}`);
             const path = `repo_keys/`;
+            const cachePath = path + key;
             // Create cache folder
             await mkdirp(path);
             //create cache file
-            await fs.writeFileSync(path + key, Buffer.from(key, 'utf-8'), 'binary');
+            await fs.writeFileSync(cachePath, Buffer.from(key, 'utf-8'), 'binary');
 
             const files = await readDirAsync(path);
             console.log(`🦄 Directory files : ${files}`);
-
-            const cacheId = await cache.saveCache(path+key, key)
+            
+            const paths = [
+                `${cachePath}`
+            ]
+            const cacheId = await cache.saveCache(paths, key)
             console.log(`🦄 Cache key saved: ${cacheId}`);
         } catch (error) {
-            console.log(error);
             core.setFailed(error);
         }
     }
