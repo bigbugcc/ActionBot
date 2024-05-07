@@ -179,6 +179,7 @@ async function main() {
         try {
             //write cache
             const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
+            console.log(`🦄 Cache key: ${key}`);
             const path = `repo_keys/`;
             // Create cache folder
             await mkdirp(path);
