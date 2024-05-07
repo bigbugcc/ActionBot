@@ -1,4 +1,4 @@
-const { authtoken, crepos } = require('./auth');
+// const { authtoken, crepos } = require('./auth');
 const { Octokit } = require("octokit");
 let octokit = null;
 const core = require("@actions/core");
@@ -75,10 +75,10 @@ async function main() {
     let token = core.getInput('token');
     let repository = core.getInput('repository');
     //Local test
-    if (token == '' || repository == '') {
-        token = authtoken;
-        repository = crepos;
-    }
+    // if (token == '' || repository == '') {
+    //     token = authtoken;
+    //     repository = crepos;
+    // }
     octokit = new Octokit({ auth: token });
 
     //repo owner and repo name
