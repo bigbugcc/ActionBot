@@ -164,7 +164,6 @@ async function main() {
 
     //trigger workflow
     for (const element of updatedWorkflows) {
-        console.log(`🚀${element.name} workflow is running!`);
         await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
             owner: repo_owner,
             repo: repo_name,
@@ -173,9 +172,13 @@ async function main() {
             inputs: {},
             headers: header
         }).then((response) => {
-            console.log(response);
+            if (response.status == 204) {
+                console.log(`🚀 The ${element.name} workflow was activated successfully and is running!`);
+            } else {
+                console.log(`❌ The ${element.name} workflow failed to activate, please check the workflow configuration!`);
+            }
         }).catch((error) => {
-            console.log(error);
+            console.log(`❌ The ${element.name} workflow error: ${error}`);
         });
 
         try {
@@ -191,7 +194,7 @@ async function main() {
 
             const files = await readDirAsync(path);
             console.log(`🦄 Directory files : ${files}`);
-            
+
             const paths = [`${cachePath}`];
             const cacheId = await cache.saveCache(paths, key);
             console.log(`🦄 Cache key saved: ${cacheId}`);
