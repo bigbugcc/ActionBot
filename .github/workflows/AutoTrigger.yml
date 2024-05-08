@@ -15,9 +15,6 @@ jobs:
 
     - name: AutoTrigger
       uses: bigbugcc/ActionBot@main
-      with:
-        token: ${{ secrets.ACCESS_TOKEN }}
-        repository: ${{ github.repository }}
 
     - name: Delete workflow runs
       uses: bigbugcc/delete-workflow-runs@main

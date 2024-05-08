@@ -81,6 +81,7 @@ function mkdirp(dir) {
 async function main() {
     let token = core.getInput('token');
     let repository = core.getInput('repository');
+    let workflow = core.getInput('workflow');
     //Local test
     // if (token == '' || repository == '') {
     //     token = authtoken;
@@ -104,7 +105,7 @@ async function main() {
     })
 
     workflowslist.data.workflows.forEach(element => {
-        if (element.name != "AutoTrigger") {
+        if (element.name != workflow) {
             workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '' });
         }
     });
@@ -117,7 +118,7 @@ async function main() {
         try {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
-            if (data.name != "AutoTrigger") {
+            if (data.name != workflow) {
                 console.log(data.name);
                 workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
                 continue;

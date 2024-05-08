@@ -11,6 +11,11 @@ inputs:
     required: true
     default: ${{ github.repository }}
 
+  workflow:
+    description: 'The name of the current workflow.'
+    required: true
+    default: ${{ github.workflow }}
+
 runs:
   using: 'node20'
   main: 'bin/main.js'
