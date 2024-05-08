@@ -40,7 +40,7 @@ async function getCommitIds() {
                 headers: header
             });
             const commitId = response.data[0].sha;
-            console.log(`🎯Github RepoName:${element.name} Last_CommitID：${commitId}`);
+            console.log(`🎯 Github RepoName:${element.name} Last_CommitID：${commitId}`);
             element.commitId = commitId;
         } else if (element.repo_url.includes('gitee.com')) {
             const options = {
@@ -61,10 +61,10 @@ async function getCommitIds() {
                 });
             });
             const commitId = body[0].sha;
-            console.log(`🎯Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
+            console.log(`🎯 Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
             element.commitId = commitId;
         } else {
-            core.setFailed('❌Invalid repository');
+            core.setFailed('❌ Invalid repository');
         }
     });
 
@@ -92,7 +92,7 @@ async function main() {
     //repo owner and repo name
     const splitRepository = repository.split('/');
     if (splitRepository.length !== 2 || !splitRepository[0] || !splitRepository[1]) {
-        throw new Error(`❌Invalid repository '${repository}'. Expected format {owner}/{repo}.`);
+        throw new Error(`❌ Invalid repository '${repository}'. Expected format {owner}/{repo}.`);
     }
     const repo_owner = splitRepository[0];
     const repo_name = splitRepository[1];
@@ -126,7 +126,7 @@ async function main() {
             console.log(e);
         }
     }
-    if (workflowInfo.length < 1) { core.setFailed('❌Not Workflow'); return; }
+    if (workflowInfo.length < 1) { core.setFailed('❌ Not Workflow'); return; }
 
     await getCommitIds();
 
@@ -147,9 +147,9 @@ async function main() {
             //find cache key
             const cacheKey = keys.find(e => e.key == key);
             if (cacheKey) {
-                console.log(`👀repo ：${element.name} Source do not update!`);
+                console.log(`👀 repo ：${element.name} Source do not update!`);
             } else {
-                console.log(`👀repo ：${element.name} Source is updated!`);
+                console.log(`👀 repo ：${element.name} Source is updated!`);
                 //trigger workflow
                 updatedWorkflows.push(element);
             }
