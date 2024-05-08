@@ -119,7 +119,6 @@ async function main() {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
             if (data.name != workflow) {
-                console.log(data.name);
                 workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
                 continue;
             }
@@ -162,6 +161,29 @@ async function main() {
         console.log('🦄 Not Found Cache! will trigger all workflows!')
     }
 
+    //Clear invalid cache
+    updatedWorkflows.forEach(element => {
+        const invalidKeys = caches.data.actions_caches.filter(e => e.key.includes(element.id));
+        if (invalidKeys.length > 0) {
+            invalidKeys.forEach(async e => {
+                await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
+                    owner: repo_owner,
+                    repo: repo_name,
+                    headers: header,
+                    cache_id: e.id
+                }).then((response) => {
+                    if (response.status == 200) {
+                        console.log(`🚀 Delete Key: ${e.key} completed!`);
+                    } else {
+                        console.log(`⚠️ Exception when deleting Key: ${response} `);
+                    }
+                }).catch((error) => {
+                    console.log(`❌ Delete Key: ${e.key} Failed！ workflow error: ${error}`);
+                });
+            });
+        }
+    });
+
     //trigger workflow
     for (const element of updatedWorkflows) {
         await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
@@ -175,7 +197,7 @@ async function main() {
             if (response.status == 204) {
                 console.log(`🚀 The ${element.name} workflow was activated successfully and is running!`);
             } else {
-                console.log(`❌ The ${element.name} workflow failed to activate, please check the workflow configuration!`);
+                console.log(`⚠️ The ${element.name} workflow failed to activate, please check the workflow configuration!`);
             }
         }).catch((error) => {
             console.log(`❌ The ${element.name} workflow error: ${error}`);
