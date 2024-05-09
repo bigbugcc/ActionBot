@@ -25,13 +25,13 @@ function readDirAsync(path) {
 
 async function getCommitIds() {
     const promises = workflowInfo.map(async (element) => {
-        const splitRepository = element.repo_url.split('/');
+        const splitRepository = element.repo_url.replace('.git', '').split('/');
         if (splitRepository.length < 4) {
             core.setFailed('Invalid repository');
-            throw new Error(`Invalid repository '${element.repo_url}'. Expected format {owner}/{repo}.`);
+            throw new Error(`Invalid repository ${element.repo_url}.`);
         }
         const repo_owner = splitRepository[3];
-        const repo_name = splitRepository[4].replace('.git', '');
+        const repo_name = splitRepository[4];
 
         if (element.repo_url.includes('github.com')) {
             const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
