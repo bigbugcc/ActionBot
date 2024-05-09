@@ -172,7 +172,7 @@ async function main() {
                     headers: header,
                     cache_id: e.id
                 }).then((response) => {
-                    if (response.status == 200) {
+                    if (response.status == 204) {
                         console.log(`🚀 Delete Key: ${e.key} completed!`);
                     } else {
                         console.log(`⚠️ Exception when deleting Key: ${response} `);
