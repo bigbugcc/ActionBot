@@ -48,11 +48,11 @@ def run():
 g = 0
 b = 0
 for i in range(10):
-    result = run()
+	result = run()
 	if result == 200:
 		g = g + 1
 		print(f"✅ Sucess | Time：{datetime.datetime.now().isoformat()}")
-		time.sleep(18)
+		time.sleep(30)
 	else:
 		b = b + 1
 
