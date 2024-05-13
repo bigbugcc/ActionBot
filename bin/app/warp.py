@@ -6,7 +6,7 @@ import string
 import time
 import os
 import sys
-referrer = os.environ["WARP_DEVICEID"]
+referrer = os.environ.get("WARP_DEVICEID")
 def genString(stringLength):
 	try:
 		letters = string.ascii_letters + string.digits
