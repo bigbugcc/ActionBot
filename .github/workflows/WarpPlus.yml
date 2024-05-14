@@ -2,11 +2,10 @@ name: WarpPlus
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '30 */1 * * *'
 
 env:
   repo: ''
+  force_active: true
 
 jobs:
   auto_getting_traffic:

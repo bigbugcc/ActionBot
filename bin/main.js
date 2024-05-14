@@ -108,7 +108,7 @@ async function main() {
 
     workflowslist.data.workflows.forEach(element => {
         if (element.name != workflow) {
-            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '' });
+            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '', force_active: false});
         }
     });
 
@@ -121,7 +121,10 @@ async function main() {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
             if (data.name != workflow) {
-                if (data.env.repo) {
+                if(data.env.force_active){
+                    workflowInfo.find(element => element.name == data.name).force_active = true;
+                    continue;
+                }else if (data.env.repo) {
                     workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
                     continue;
                 } else {
@@ -150,12 +153,17 @@ async function main() {
         const keys = caches.data.actions_caches;
         //check repo updated
         for (const element of workflowInfo) {
+            //force active workflow
+            if(element.force_active)
+            {
+                updatedWorkflows.push(element);
+                continue;
+            }
             //make repo cache key
             let key = `${element.id}-${element.name}-${element.commitId}`;
             key = key.replace(/\s/g, '');
             //find cache key
-            const cacheKey = keys.find(e => e.key == key);
-            if (cacheKey) {
+            if (cacheKey = keys.find(e => e.key == key)) {
                 console.log(`👀 repo ：${element.name} Source do not update!`);
             } else {
                 console.log(`👀 repo ：${element.name} Source is updated!`);
@@ -212,26 +220,29 @@ async function main() {
             console.log(`❌ The ${element.name} workflow error: ${error}`);
         });
 
-        try {
-            //write cache
-            const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
-            console.log(`🦄 Cache key: ${key}`);
-            const path = `repo_keys/`;
-            const cachePath = path + key;
-            // Create cache folder
-            await mkdirp(path);
-            //create cache file
-            await fs.writeFileSync(cachePath, Buffer.from(key, 'utf-8'), 'binary');
-
-            const files = await readDirAsync(path);
-            console.log(`🦄 Directory files : ${files}`);
-
-            const paths = [`${cachePath}`];
-            const cacheId = await cache.saveCache(paths, key);
-            console.log(`🦄 Cache key saved: ${cacheId}`);
-        } catch (error) {
-            core.setFailed(error);
-        }
+        if(element.commitId)
+        {
+            try {
+                //write cache
+                const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
+                console.log(`🦄 Cache key: ${key}`);
+                const path = `repo_keys/`;
+                const cachePath = path + key;
+                // Create cache folder
+                await mkdirp(path);
+                //create cache file
+                await fs.writeFileSync(cachePath, Buffer.from(key, 'utf-8'), 'binary');
+    
+                const files = await readDirAsync(path);
+                console.log(`🦄 Directory files : ${files}`);
+    
+                const paths = [`${cachePath}`];
+                const cacheId = await cache.saveCache(paths, key);
+                console.log(`🦄 Cache key saved: ${cacheId}`);
+            } catch (error) {
+                core.setFailed(error);
+            }
+        } 
     }
 }
 main();
