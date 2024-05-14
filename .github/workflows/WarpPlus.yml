@@ -8,7 +8,7 @@ env:
   force_active: true
 
 jobs:
-  auto_getting_traffic:
+  sync:
     runs-on: ubuntu-latest
     steps:
       - name: 'Checking'
