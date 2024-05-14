@@ -6,7 +6,7 @@ import string
 import time
 import os
 import sys
-referrer = os.environ.get("WARP_DEVICEID")
+referrer = os.environ.get("DEVICEID")
 def genString(stringLength):
 	try:
 		letters = string.ascii_letters + string.digits
@@ -23,7 +23,6 @@ url = f'https://api.cloudflareclient.com/v0a{digitString(3)}/reg'
 def run():
 	try:
 		install_id = genString(22)
-		print(f"🍭 Key Length:{len(referrer)}")
 		body = {"key": "{}=".format(genString(43)),
 				"install_id": install_id,
 				"fcm_token": "{}:APA91b{}".format(install_id, genString(134)),
