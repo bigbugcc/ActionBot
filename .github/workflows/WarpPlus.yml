@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: '30 */1 * * *'
 
+env:
+  repo: ''
+
 jobs:
   auto_getting_traffic:
     runs-on: ubuntu-latest

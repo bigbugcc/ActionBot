@@ -25,46 +25,48 @@ function readDirAsync(path) {
 
 async function getCommitIds() {
     const promises = workflowInfo.map(async (element) => {
-        const splitRepository = element.repo_url.replace('.git', '').split('/');
-        if (splitRepository.length < 4) {
-            core.setFailed('Invalid repository');
-            throw new Error(`Invalid repository ${element.repo_url}.`);
-        }
-        const repo_owner = splitRepository[3];
-        const repo_name = splitRepository[4];
-
-        if (element.repo_url.includes('github.com')) {
-            const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
-                owner: repo_owner,
-                repo: repo_name,
-                headers: header
-            });
-            const commitId = response.data[0].sha;
-            console.log(`🎯 Github RepoName:${element.name} Last_CommitID：${commitId}`);
-            element.commitId = commitId;
-        } else if (element.repo_url.includes('gitee.com')) {
-            const options = {
-                url: `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`,
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                json: true
-            };
-            const body = await new Promise((resolve, reject) => {
-                request(options, (error, response, body) => {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve(body);
-                    }
+        if (element.repo_url) {
+            const splitRepository = element.repo_url.replace('.git', '').split('/');
+            if (splitRepository.length < 4) {
+                core.setFailed('Invalid repository');
+                throw new Error(`Invalid repository ${element.repo_url}.`);
+            }
+            const repo_owner = splitRepository[3];
+            const repo_name = splitRepository[4];
+    
+            if (element.repo_url.includes('github.com')) {
+                const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
+                    owner: repo_owner,
+                    repo: repo_name,
+                    headers: header
                 });
-            });
-            const commitId = body[0].sha;
-            console.log(`🎯 Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
-            element.commitId = commitId;
-        } else {
-            core.setFailed('❌ Invalid repository');
+                const commitId = response.data[0].sha;
+                console.log(`🎯 Github RepoName:${element.name} Last_CommitID：${commitId}`);
+                element.commitId = commitId;
+            } else if (element.repo_url.includes('gitee.com')) {
+                const options = {
+                    url: `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`,
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    json: true
+                };
+                const body = await new Promise((resolve, reject) => {
+                    request(options, (error, response, body) => {
+                        if (error) {
+                            reject(error);
+                        } else {
+                            resolve(body);
+                        }
+                    });
+                });
+                const commitId = body[0].sha;
+                console.log(`🎯 Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
+                element.commitId = commitId;
+            } else {
+                core.setFailed('❌ Invalid repository');
+            }
         }
     });
 
@@ -119,8 +121,15 @@ async function main() {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
             if (data.name != workflow) {
-                workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
-                continue;
+                if (data.env.repo) {
+                    workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
+                    continue;
+                } else {
+                    const index = workflowInfo.findIndex(element => element.name == data.name);
+                    if (index !== -1) {
+                        workflowInfo.splice(index, 1);
+                    }
+                }
             }
         } catch (e) {
             console.log(e);
