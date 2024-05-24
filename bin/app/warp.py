@@ -29,7 +29,7 @@ def run():
 				"referrer": referrer,
 				"warp_enabled": False,
 				"tos": datetime.datetime.now().isoformat()[:-3] + "+02:00",
-				"type": "Windows",
+				"type": "Android",
 				"locale": "es_ES"}
 		data = json.dumps(body).encode('utf8')
 		headers = {'Content-Type': 'application/json; charset=UTF-8',
@@ -49,10 +49,10 @@ g = 0
 b = 0
 for i in range(10):
 	result = run()
+	time.sleep(90)
 	if result == 200:
 		g = g + 1
 		print(f"✅ Sucess | Time：{datetime.datetime.now().isoformat()}")
-		time.sleep(60)
 	else:
 		b = b + 1
 
