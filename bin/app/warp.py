@@ -49,7 +49,7 @@ g = 0
 b = 0
 for i in range(10):
 	result = run()
-	time.sleep(90)
+	time.sleep(random.randint(60, 120))
 	if result == 200:
 		g = g + 1
 		print(f"✅ Sucess | Time：{datetime.datetime.now().isoformat()}")
