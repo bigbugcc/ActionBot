@@ -20,13 +20,13 @@ def digitString(stringLength):
 	except Exception as error:
 		print(error)	
 url = f'https://api.cloudflareclient.com/v0a{digitString(3)}/reg'
-def run():
+def run(deviceid):
 	try:
 		install_id = genString(22)
 		body = {"key": "{}=".format(genString(43)),
 				"install_id": install_id,
 				"fcm_token": "{}:APA91b{}".format(install_id, genString(134)),
-				"referrer": referrer,
+				"referrer": deviceid,
 				"warp_enabled": False,
 				"tos": datetime.datetime.now().isoformat()[:-3] + "+02:00",
 				"type": "Android",
@@ -47,14 +47,16 @@ def run():
 
 g = 0
 b = 0
-for i in range(10):
-	result = run()
-	time.sleep(random.randint(60, 120))
-	if result == 200:
-		g = g + 1
-		print(f"✅ Sucess | Time：{datetime.datetime.now().isoformat()}")
-	else:
-		b = b + 1
+key_arr = referrer.split(';')
+for key in key_arr:
+	for i in range(10):
+		result = run(key)
+		if result == 200:
+			g = g + 1
+			print(f"✅ Sucess | Time：{datetime.datetime.now().isoformat()}")
+		else:
+			b = b + 1
+		time.sleep(random.randint(60, 120))
 
 print(f"🚀 Total Success: {g}")
 print(f"💔 Total Failed: {b}")
