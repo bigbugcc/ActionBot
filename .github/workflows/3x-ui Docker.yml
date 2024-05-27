@@ -31,6 +31,12 @@ jobs:
           echo "repo_tag=$(git describe --tags `git rev-list --tags --max-count=1`)" >> $GITHUB_OUTPUT
           echo "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT >> $GITHUB_OUTPUT
 
+      - name: Modify Dockerfile
+        working-directory: /workdir
+        run: |
+          cat ./bin/dockerfile/3x-ui > ./Dockerfile
+          cat ./Dockerfile
+
       - name: Checkout
         uses: actions/checkout@v4
 
