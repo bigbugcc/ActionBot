@@ -17,23 +17,24 @@ jobs:
       - name: Init Env
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
-          sudo mkdir -p /workdir
-          sudo chown $USER:$GROUPS /workdir
+          sudo apt-get install tree
+          sudo mkdir -p ./workdir
+          sudo chown $USER:$GROUPS ./workdir
 
       - name: Clone Repo
         run: |
-          git clone ${{ env.repo }} /workdir
+          git clone ${{ env.repo }} ./workdir
       
       - name: Repo Tag
-        working-directory: /workdir
+        working-directory: ./workdir
         id: tag
         run: |
           echo "repo_tag=$(git describe --tags `git rev-list --tags --max-count=1`)" >> $GITHUB_OUTPUT
           echo "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT >> $GITHUB_OUTPUT
 
       - name: Modify Dockerfile
-        working-directory: /workdir
         run: |
+          tree -a
           cat ./bin/dockerfile/3x-ui > ./Dockerfile
           cat ./Dockerfile
 
@@ -56,7 +57,7 @@ jobs:
         id: docker
         uses: docker/build-push-action@v5
         with:
-          context: /workdir
+          context: ./workdir
           push: true
           file: ${{ env.docker-file-path }}
           platforms: ${{ env.platforms }}
