@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
         
     steps:  
+      - name: 'Checking'
+        uses: actions/checkout@v4
+
       - name: Init Env
         run: |
           sudo timedatectl set-timezone Asia/Shanghai
@@ -39,9 +42,6 @@ jobs:
           tree -L 2
           cat ./bin/dockerfile/3x-ui > ./Dockerfile
           cat ./Dockerfile
-
-      - name: Checkout
-        uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
