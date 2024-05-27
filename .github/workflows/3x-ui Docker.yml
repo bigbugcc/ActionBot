@@ -23,8 +23,8 @@ jobs:
           sudo apt-get install tree
           sudo mkdir -p ./workdir
           sudo chown $USER:$GROUPS ./workdir
-          ls -l
-          tree -a
+          echo "======== 🚀Directory structure ========"
+          tree -L 3
 
       - name: Clone Repo
         run: |
@@ -39,8 +39,8 @@ jobs:
 
       - name: Modify Dockerfile
         run: |
-          tree -L 2
           cat ./bin/dockerfile/3x-ui > ./Dockerfile
+          echo "======== 🚀Dockerfile Info ========"
           cat ./Dockerfile
 
       - name: Set up QEMU
