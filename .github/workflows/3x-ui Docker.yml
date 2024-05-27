@@ -20,6 +20,8 @@ jobs:
           sudo apt-get install tree
           sudo mkdir -p ./workdir
           sudo chown $USER:$GROUPS ./workdir
+          ls -l
+          tree -a
 
       - name: Clone Repo
         run: |
@@ -34,7 +36,7 @@ jobs:
 
       - name: Modify Dockerfile
         run: |
-          tree -a
+          tree -L 2
           cat ./bin/dockerfile/3x-ui > ./Dockerfile
           cat ./Dockerfile
 
