@@ -39,12 +39,13 @@ jobs:
 
       - name: Modify file
         run: |
+          tree -L 3
           echo "======== 🚀Dockerfile Info ========"
-          cp -rf ./bin/warp/Dockerfile .
-          cat ./Dockerfile
+          cp -rf ./bin/warp/Dockerfile ./workdir/
+          cat ./workdir/Dockerfile
           echo "======== 🚀Warp Configuration ========"
-          cp -rf ./bin/warp/DockerEntrypoint.sh .
-          cp -rf ./bin/warp/example_config.json .
+          cp -rf ./bin/warp/DockerEntrypoint.sh ./workdir/
+          cp -rf ./bin/warp/example_config.json ./workdir/
           cat ./example_config.json
 
       - name: Set up QEMU
