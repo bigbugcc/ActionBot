@@ -25,7 +25,8 @@
 </p>
 
 ## 目录
-- [3x-ui Docker](#3x-ui)
+- [3x-ui Docker](#3x-ui-Docker)
+- [WarpPlus Docker](#WarpPlus-Docker)
 
 
 ## 项目列表
@@ -34,12 +35,11 @@
 |             3x-ui                   |  [Docker](https://github.com/MHSanaei/3x-ui) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui-Docker.yml) | ![3x-ui](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui-Docker.yml/badge.svg) |  [✔](https://hub.docker.com/r/bigbugcc/3x-ui) |
 |             Admin.NET                   |  [镜像库](https://gitee.com/zuohuaijun/Admin.NET) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET-Sync.yml) | ![Admin.NET](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET-Sync.yml/badge.svg) |  [✔](https://github.com/bigbugcc/Admin.NET) |
 |             WarpPlus-Traffic                   |  [Task](https://github.com/bigbugcc/ActionBot) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml/badge.svg) |  [✔](https://github.com/bigbugcc/ActionBot/blob/main/bin/warp/warp.py) |
+|             WarpPlus-Docker                  |  [Docker](https://github.com/bepass-org/warp-plus) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Docker.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Docker.yml/badge.svg) |  [✔](https://hub.docker.com/r/bigbugcc/warp-plus) |
 
-###
-# 3x-ui
+
+# 3x-ui-Docker
 Docker Usage  
-
-
 
 - 项目地址 https://github.com/MHSanaei/3x-ui
 ```bash
@@ -65,6 +65,52 @@ docker run -itd \
 - **Web Panel Path w/ Deploying SSL:**
   - https://domain:2053/panel
 
+# WarpPlus-Docker
+Repo：https://github.com/bigbugcc/ActionBot  
+warp-plus：https://github.com/bepass-org/warp-plus
+
+### Default Setting
+- **Port:** 1080
+- **Warp Config Path:**
+  - /etc/warp/config.json
+### Parameter
+`/etc/warp/config.json`
+```shell
+NAME
+  warp-plus
+
+FLAGS
+  -4                       only use IPv4 for random warp endpoint
+  -6                       only use IPv6 for random warp endpoint
+  -v, --verbose            enable verbose logging
+  -b, --bind STRING        socks bind address (default: 127.0.0.1:8086)
+  -e, --endpoint STRING    warp endpoint
+  -k, --key STRING         warp key
+      --dns STRING         DNS address (default: 1.1.1.1)
+      --gool               enable gool mode (warp in warp)
+      --cfon               enable psiphon mode (must provide country as well)
+      --country STRING     psiphon country code (valid values: [AT BE BG BR CA CH CZ DE DK EE ES FI FR GB HR HU IE IN IT JP LV NL NO PL PT RO RS SE SG SK UA US]) (default: AT)
+      --scan               enable warp scanning
+      --rtt DURATION       scanner rtt limit (default: 1s)
+      --cache-dir STRING   directory to store generated profiles
+      --tun-experimental   enable tun interface (experimental)
+      --fwmark UINT        set linux firewall mark for tun mode (default: 4981)
+      --reserved STRING    override wireguard reserved value (format: '1,2,3')
+      --wgconf STRING      path to a normal wireguard config
+  -c, --config STRING      path to config file
+      --version            displays version number
+```
+### Usage
+Modify config '/etc/warp/config.json'
+
+```bash
+docker run -itd \
+   -v /etc/warp/:/etc/warp/ \
+   --network=host \
+   --restart=unless-stopped \
+   --name warp-plus \
+   bigbugcc/warp-plus:latest
+```
 
 
 <!-- links -->
