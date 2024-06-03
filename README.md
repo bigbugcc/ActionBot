@@ -31,9 +31,9 @@
 ## 项目列表
 |           项目        |         类别         |        Action         |            状态          |              入口          |
 | :------------------------: | :---------------------: | :-------------------: | :-------------------: | :--------------------------: |
-|             3x-ui                   |  [Docker](https://github.com/MHSanaei/3x-ui) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui%20Docker.yml) | ![3x-ui](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui%20Docker.yml/badge.svg) |  [✔](https://hub.docker.com/r/bigbugcc/3x-ui) |
-|             Admin.NET                   |  [镜像库](https://gitee.com/zuohuaijun/Admin.NET) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET%20Sync.yml) | ![Admin.NET](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET%20Sync.yml/badge.svg) |  [✔](https://github.com/bigbugcc/Admin.NET) |
-|             WarpPlus                   |  [Task](https://github.com/bigbugcc/ActionBot) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus.yml/badge.svg) |  [✔](https://github.com/bigbugcc/ActionBot/blob/main/bin/app/warp.py) |
+|             3x-ui                   |  [Docker](https://github.com/MHSanaei/3x-ui) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui-Docker.yml) | ![3x-ui](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui-Docker.yml/badge.svg) |  [✔](https://hub.docker.com/r/bigbugcc/3x-ui) |
+|             Admin.NET                   |  [镜像库](https://gitee.com/zuohuaijun/Admin.NET) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET-Sync.yml) | ![Admin.NET](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET-Sync.yml/badge.svg) |  [✔](https://github.com/bigbugcc/Admin.NET) |
+|             WarpPlus-Traffic                   |  [Task](https://github.com/bigbugcc/ActionBot) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml/badge.svg) |  [✔](https://github.com/bigbugcc/ActionBot/blob/main/bin/warp/warp.py) |
 
 ###
 # 3x-ui
