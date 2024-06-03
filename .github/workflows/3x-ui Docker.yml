@@ -39,7 +39,7 @@ jobs:
 
       - name: Modify Dockerfile
         run: |
-          cat ./bin/dockerfile/3x-ui > ./Dockerfile
+          cat ./bin/3x-ui/Dockerfile > ./Dockerfile
           echo "======== 🚀Dockerfile Info ========"
           cat ./Dockerfile
 
