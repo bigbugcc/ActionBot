@@ -45,7 +45,7 @@ jobs:
           echo "======== 🚀Warp Configuration ========"
           cp -rf ./bin/warp/DockerEntrypoint.sh .
           cp -rf ./bin/warp/example_config.json .
-          cat ./config.json
+          cat ./example_config.json
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
