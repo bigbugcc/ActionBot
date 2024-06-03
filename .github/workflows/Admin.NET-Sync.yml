@@ -1,4 +1,4 @@
-name: Admin.NET Sync
+name: Admin.NET-Sync
 
 on:
   repository_dispatch:

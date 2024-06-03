@@ -1,4 +1,4 @@
-name: 3x-ui Docker
+name: 3x-ui-Docker
 on:
   repository_dispatch:
   workflow_dispatch:

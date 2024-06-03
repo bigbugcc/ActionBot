@@ -1,4 +1,4 @@
-name: WarpPlus Docker
+name: WarpPlus-Docker
 on:
   repository_dispatch:
   workflow_dispatch:

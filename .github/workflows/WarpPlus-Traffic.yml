@@ -1,4 +1,4 @@
-name: WarpPlus
+name: WarpPlus-Traffic
 
 on:
   workflow_dispatch:
