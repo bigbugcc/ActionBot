@@ -40,7 +40,7 @@ jobs:
 
       - name: Modify Dockerfile
         run: |
-          cp -rf $configure-sh ./workdir/
+          [ -e $configure-sh ] && mv $configure-sh ./workdir/
           cd ./workdir/
           tree -L 2
           chmod +x ./configure.sh && ./configure.sh
