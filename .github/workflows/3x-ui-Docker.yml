@@ -41,7 +41,10 @@ jobs:
       - name: Modify Dockerfile
         run: |
           [ -e $configure-sh ] && cp -rf $configure-sh ./workdir/
-          cd ./workdir/ && chmod +x ./configure.sh && ./configure.sh
+          tree -L 3
+          cd ./workdir/
+          tree -L 2
+          chmod +x $GITHUB_WORKSPACE/configure.sh && $GITHUB_WORKSPACE/configure.sh
           echo "======== 🚀Dockerfile Info ========"
           cat ./Dockerfile
 
