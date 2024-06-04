@@ -8,6 +8,7 @@ env:
   docker-repo: 'bigbugcc/3x-ui'
   docker-file-path: ''
   platforms: 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64'
+  configure-sh: './bin/3x-ui/configure.sh'
 
 jobs:  
   build:  
@@ -39,7 +40,8 @@ jobs:
 
       - name: Modify Dockerfile
         run: |
-          cat ./bin/3x-ui/Dockerfile > ./Dockerfile
+          [ -e $configure-sh ] && cp -rf $configure-sh ./workdir/
+          cd ./workdir/ && chmod +x ./configure.sh &&  && ./configure.sh
           echo "======== 🚀Dockerfile Info ========"
           cat ./Dockerfile
 
