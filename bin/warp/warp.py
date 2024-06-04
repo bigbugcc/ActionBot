@@ -49,7 +49,7 @@ g = 0
 b = 0
 key_arr = referrer.split(';')
 for key in key_arr:
-	for i in range(10):
+	for i in range(3):
 		result = run(key)
 		if result == 200:
 			g = g + 1
