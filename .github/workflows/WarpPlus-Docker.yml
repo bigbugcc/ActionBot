@@ -74,6 +74,11 @@ jobs:
       
       - name: Image digest
         run: echo ${{ steps.docker.outputs.digest }}
+
+      - name: Export Docker Tar to Release
+        working-directory: ./workdir
+        run: |
+          docker save -o warp-plus-DockerImage-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:${{ steps.tag.outputs.repo_tag }}
         
       - name: Create Release
         id: release
@@ -87,5 +92,8 @@ jobs:
           body: | 
             Release Note:
             - [ DockerHub🐬 ](https://hub.docker.com/r/${{ env.docker-repo }})
+            - 🎯Use: `docker pull bigbugcc/warp-plus:latest`
+            - 👇Or download the Docker image and import it manually
           files: | 
             ${{ steps.docker.outputs.metadata }}
+            warp-plus-DockerImage-${{ steps.tag.outputs.repo_tag }}.tar
