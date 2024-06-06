@@ -74,12 +74,6 @@ jobs:
       
       - name: Image digest
         run: echo ${{ steps.docker.outputs.digest }}
-
-      - name: Export Docker Tar to Release
-        working-directory: ./workdir
-        run: |
-          docker ps -a
-          docker save -o warp-plus-DockerImage-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest
         
       - name: Create Release
         id: release
@@ -97,4 +91,3 @@ jobs:
             - 👇Or download the Docker image and import it manually
           files: | 
             ${{ steps.docker.outputs.metadata }}
-            warp-plus-DockerImage-${{ steps.tag.outputs.repo_tag }}.tar
