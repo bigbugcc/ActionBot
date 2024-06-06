@@ -73,10 +73,15 @@ jobs:
       
       - name: Image digest
         run: echo ${{ steps.docker.outputs.digest }}
+      
+      - name: Import Docker Tar to Release
+        working-directory: ./workdir
+        run: |
+          docker save -o warp-plus-${{ steps.tag.outputs.repo_tag }}.tar bigbugcc/warp-plus:${{ steps.tag.outputs.repo_tag }}
         
       - name: Create Release
         id: release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: success() && !cancelled()
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
@@ -86,5 +91,8 @@ jobs:
           body: | 
             Release Note:
             - [ DockerHub🐬 ](https://hub.docker.com/r/${{ env.docker-repo }})
+            - 🎯Use: `docker pull bigbugcc/3x-ui:latest`
+            - 👇Or download the Docker image and import it manually
           files: | 
             ${{ steps.docker.outputs.metadata }}
+            warp-plus-${{ steps.tag.outputs.repo_tag }}.tar
