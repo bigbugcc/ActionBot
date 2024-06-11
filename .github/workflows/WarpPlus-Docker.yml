@@ -99,5 +99,5 @@ jobs:
             - 👇Or download the Docker image and import it manually
           files: | 
             ${{ steps.docker.outputs.metadata }}
-            warp-plus-amd64--${{ steps.tag.outputs.repo_tag }}.tar
-            warp-plus-arm64--${{ steps.tag.outputs.repo_tag }}.tar
+            warp-plus-amd64-${{ steps.tag.outputs.repo_tag }}.tar
+            warp-plus-arm64-${{ steps.tag.outputs.repo_tag }}.tar
