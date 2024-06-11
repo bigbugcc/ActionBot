@@ -73,7 +73,15 @@ jobs:
       
       - name: Image digest
         run: echo ${{ steps.docker.outputs.digest }}
-      
+
+      - name: Docker pull to save
+        run: |
+          docker pull --platform linux/amd64 ${{ env.docker-repo }}:latest
+          docker save -o 3x-ui-amd64-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest
+          docker rmi ${{ env.docker-repo }}:latest
+          docker pull --platform linux/arm64 ${{ env.docker-repo }}:latest
+          docker save -o 3x-ui-arm64-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest      
+
       - name: Create Release
         id: release
         uses: softprops/action-gh-release@v2
@@ -90,3 +98,5 @@ jobs:
             - 👇Or download the Docker image and import it manually
           files: | 
             ${{ steps.docker.outputs.metadata }}
+            3x-ui-amd64-${{ steps.tag.outputs.repo_tag }}.tar
+            3x-ui-arm64-${{ steps.tag.outputs.repo_tag }}.tar
