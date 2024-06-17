@@ -108,7 +108,8 @@ async function main() {
 
     workflowslist.data.workflows.forEach(element => {
         if (element.name != workflow) {
-            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '', force_active: false});
+            //force_active parameter: 0:default, 1:force execute, 2:ignore
+            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '', force_active: 0});
         }
     });
 
@@ -121,13 +122,16 @@ async function main() {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
             if (data.name != workflow) {
-                if(data.env.force_active){
-                    workflowInfo.find(element => element.name == data.name).force_active = true;
+                if(data.env.force_active === 1 || data.env.repo){
+                    //force execute workflow, ignore repo commit id
+                    workflowInfo.find(element => element.name == data.name).force_active = data.env.force_active;
+                    if(data.env.repo){
+                        //repo commit id execute workflow
+                        workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
+                    }
                     continue;
-                }else if (data.env.repo) {
-                    workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
-                    continue;
-                } else {
+                }else{
+                    //exclude workflow
                     const index = workflowInfo.findIndex(element => element.name == data.name);
                     if (index !== -1) {
                         workflowInfo.splice(index, 1);
@@ -154,7 +158,7 @@ async function main() {
         //check repo updated
         for (const element of workflowInfo) {
             //force active workflow
-            if(element.force_active)
+            if(element.force_active === 1)
             {
                 updatedWorkflows.push(element);
                 continue;
