@@ -25,6 +25,7 @@
 </p>
 
 ## 目录
+- [ActionBot Param](#ActionBot-Param)
 - [3x-ui Docker](#3x-ui-Docker)
 - [WarpPlus Docker](#WarpPlus-Docker)
 
@@ -37,6 +38,42 @@
 |             WarpPlus-Traffic                   |  [Task](https://github.com/bigbugcc/ActionBot) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml/badge.svg) |  [✔](https://github.com/bigbugcc/ActionBot/blob/main/bin/warp/warp.py) |
 |             WarpPlus-Docker                  |  [Docker](https://github.com/bepass-org/warp-plus) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Docker.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Docker.yml/badge.svg) |  [✔](https://hub.docker.com/r/bigbugcc/warp-plus) |
 
+# ActionBot-Param
+### Usage
+```yaml
+    - name: AutoTrigger
+      uses: bigbugcc/ActionBot@main
+```
+
+### Actoin Param
+```yaml
+token:
+    description: 'The token used to authenticate.'
+    required: true
+    default: ${{ github.token }}
+
+  repository:
+    description: 'The name of the repository.'
+    required: true
+    default: ${{ github.repository }}
+
+  workflow:
+    description: 'The name of the current workflow.'
+    required: true
+    default: ${{ github.workflow }}
+```
+
+### Trigger Param
+```yaml
+env:
+  repo: '' 
+  force_active: 1
+```
+- repo : 监听的仓库地址，根据该地址判断commitId是否变化，而触发当前`Workflow`；可以为空。
+- force_active : `0，1，2`  
+    `0` -> 默认值，会根据repo的值进行判断；   
+    `1` -> 强制执行当前`Workflow`，不判断CommitId；  
+    `2` -> 跳过执行，即使`Repo`不为空也会直接跳过；
 
 # 3x-ui-Docker
 Docker Usage  
