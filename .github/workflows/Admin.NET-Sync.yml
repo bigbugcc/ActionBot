@@ -31,13 +31,15 @@ jobs:
         run: |
           git clone https://github.com/bigbugcc/Admin.NET.git
           cd Admin.NET
-          git checkout next-
+          git checkout next
 
-      - name: Sync with Upstream to next branch
+      - name: Merge Upstream
         working-directory: /workdir/Admin.NET
         run: |
           git remote add upstream ${{ env.repo }}
           git fetch upstream
+          git remote
+          git checkout next
           git merge upstream/next --no-edit
 
       - name: Push changes
@@ -45,5 +47,6 @@ jobs:
         with:
           github_token: ${{ secrets.ACCESS_TOKEN }}
           directory: /workdir/Admin.NET
-          repository: bigbugcc/Admin.NET
+          branch: next
+          repository: GYunStudio/GYunStudio
           force: true
