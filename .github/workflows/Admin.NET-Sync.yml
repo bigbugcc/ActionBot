@@ -48,5 +48,5 @@ jobs:
           github_token: ${{ secrets.ACCESS_TOKEN }}
           directory: /workdir/Admin.NET
           branch: next
-          repository: GYunStudio/GYunStudio
+          repository: bigbugcc/Admin.NET
           force: true
