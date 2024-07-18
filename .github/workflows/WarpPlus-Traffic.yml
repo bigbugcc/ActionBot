@@ -5,7 +5,7 @@ on:
 
 env:
   repo: ''
-  force_active: 1
+  force_active: 2
 
 jobs:
   sync:
