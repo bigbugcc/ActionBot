@@ -15,8 +15,6 @@ jobs:
       - name: Init Env
         run: |
           sudo -E apt-get -qq install git curl wget openssl -y  
-          sudo echo "180.76.198.77 gitee.com" | sudo tee -a /etc/hosts
-          sudo echo "182.255.33.134 gitee.com" | sudo tee -a /etc/hosts
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
 
