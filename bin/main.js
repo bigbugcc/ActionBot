@@ -263,7 +263,7 @@ async function main() {
 
     //check error workflow
     const errorWork = updatedWorkflows.find(element => element.status === 0);
-    if(errorWork.length > 0)
+    if(errorWork)
     {
         errorWork.forEach(element => {
             console.log(`⚠️ [ ${element.name} ] workflow is possible problems, please check the log!`);
