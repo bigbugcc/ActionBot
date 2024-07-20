@@ -33,39 +33,47 @@ async function getCommitIds() {
             }
             const repo_owner = splitRepository[3];
             const repo_name = splitRepository[4];
-    
-            if (element.repo_url.includes('github.com')) {
-                const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
-                    owner: repo_owner,
-                    repo: repo_name,
-                    headers: header
-                });
-                const commitId = response.data[0].sha;
-                console.log(`🎯 Github RepoName:${element.name} Last_CommitID：${commitId}`);
-                element.commitId = commitId;
-            } else if (element.repo_url.includes('gitee.com')) {
-                const options = {
-                    url: `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`,
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    json: true
-                };
-                const body = await new Promise((resolve, reject) => {
-                    request(options, (error, response, body) => {
-                        if (error) {
-                            reject(error);
-                        } else {
-                            resolve(body);
-                        }
+
+            try {
+                if (element.repo_url.includes('github.com')) {
+                    const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
+                        owner: repo_owner,
+                        repo: repo_name,
+                        headers: header
                     });
-                });
-                const commitId = body[0].sha;
-                console.log(`🎯 Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
-                element.commitId = commitId;
-            } else {
-                core.setFailed('❌ Invalid repository');
+                    const commitId = response.data[0].sha;
+                    console.log(`🎯 Github RepoName:${element.name} Last_CommitID：${commitId}`);
+                    element.commitId = commitId;
+                } else if (element.repo_url.includes('gitee.com')) {
+                    const options = {
+                        url: `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`,
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        json: true
+                    };
+                    const body = await new Promise((resolve, reject) => {
+                        request(options, (error, response, body) => {
+                            if (error) {
+                                reject(error);
+                            } else {
+                                resolve(body);
+                            }
+                        });
+                    });
+                    const commitId = body[0].sha;
+                    console.log(`🎯 Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
+                    element.commitId = commitId;
+                } else {
+                    //core.setFailed('❌ Invalid repository');
+                    element.status = 0;
+                    core.warning(`⚠️ ${element.repo_url} is Invalid repository url, please check the url`);
+                }
+            }
+            catch (error) {
+                element.status = 0;
+                core.warning(`⚠️ ${element.repo_url} possible problems, log: ${error}`);
             }
         }
     });
@@ -109,7 +117,7 @@ async function main() {
     workflowslist.data.workflows.forEach(element => {
         if (element.name != workflow) {
             //force_active parameter: 0:default, 1:force execute, 2:ignore
-            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '', force_active: 0});
+            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '', force_active: 0, status: 1 });
         }
     });
 
@@ -122,15 +130,15 @@ async function main() {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
             if (data.name != workflow) {
-                if(data.env.force_active === 1 || data.env.repo){
+                if (data.env.force_active === 1 || data.env.repo) {
                     //force execute workflow, ignore repo commit id
                     workflowInfo.find(element => element.name == data.name).force_active = data.env.force_active;
-                    if(data.env.repo){
+                    if (data.env.repo) {
                         //repo commit id execute workflow
                         workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
                     }
                     continue;
-                }else{
+                } else {
                     //exclude workflow
                     const index = workflowInfo.findIndex(element => element.name == data.name);
                     if (index !== -1) {
@@ -157,12 +165,17 @@ async function main() {
         const keys = caches.data.actions_caches;
         //check repo updated
         for (const element of workflowInfo) {
+            //exclude exception repo workflow
+            if (element.status === 0) {
+                console.log(`⚠️ repo ：${element.repo_url} Source is invalid, Already skipped!`);
+                continue;
+            }
             //force active workflow
-            if(element.force_active === 1)
-            {
+            if (element.force_active === 1) {
                 updatedWorkflows.push(element);
                 continue;
             }
+
             //make repo cache key
             let key = `${element.id}-${element.name}-${element.commitId}`;
             key = key.replace(/\s/g, '');
@@ -224,8 +237,7 @@ async function main() {
             console.log(`❌ The ${element.name} workflow error: ${error}`);
         });
 
-        if(element.commitId)
-        {
+        if (element.commitId) {
             try {
                 //write cache
                 const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
@@ -236,17 +248,27 @@ async function main() {
                 await mkdirp(path);
                 //create cache file
                 await fs.writeFileSync(cachePath, Buffer.from(key, 'utf-8'), 'binary');
-    
+
                 const files = await readDirAsync(path);
                 console.log(`🦄 Directory files : ${files}`);
-    
+
                 const paths = [`${cachePath}`];
                 const cacheId = await cache.saveCache(paths, key);
                 console.log(`🦄 Cache key saved: ${cacheId}`);
             } catch (error) {
                 core.setFailed(error);
             }
-        } 
+        }
+    }
+
+    //check error workflow
+    const errorWork = updatedWorkflows.find(element => element.status === 0);
+    if(errorWork.length > 0)
+    {
+        errorWork.forEach(element => {
+            console.log(`⚠️ [ ${element.name} ] workflow is possible problems, please check the log!`);
+        });
+        core.setFailed('❌ Some workflows failed, please check !');
     }
 }
 main();
