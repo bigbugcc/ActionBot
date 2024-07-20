@@ -12,6 +12,15 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      
+    - name: Init
+      run: |
+        nslookup gitee.com
+        echo "===================================="
+        sudo echo "nameserver 8.8.8.8" > /etc/resolv.conf
+        nslookup gitee.com
+        echo "===================================="
+        dig @8.8.8.8 gitee.com
 
     - name: AutoTrigger
       uses: bigbugcc/ActionBot@main
