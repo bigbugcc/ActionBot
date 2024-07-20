@@ -14,10 +14,12 @@ jobs:
     steps:    
       - name: Init Env
         run: |
-          sudo -E apt-get -qq install git curl wget openssl -y  
-          sudo echo "180.76.198.77 gitee.com" | sudo tee -a /etc/hosts
+          sudo -E apt-get -qq install git curl wget openssl -y
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
+
+      - name: Domain tools
+        uses: bigbugcc/cn-domain-tools@main
 
       - name: Configure Git
         working-directory: /workdir
