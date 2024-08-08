@@ -13,5 +13,7 @@
   "tun-experimental": false,
   "fwmark": "0x1375",
   "wgconf": "",
-  "reserved": ""
+  "reserved": "",
+  "4": true,
+  "6": true
 }
