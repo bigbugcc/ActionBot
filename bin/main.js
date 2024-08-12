@@ -100,6 +100,7 @@ async function main() {
     let token = core.getInput('token');
     let repository = core.getInput('repository');
     let workflow = core.getInput('workflow');
+    let workspace = core.getInput('workspace');
     //Local test
     // if (token == '' || repository == '') {
     //     token = authtoken;
@@ -131,7 +132,7 @@ async function main() {
     console.log(`🎯workflow count: ${workflowInfo.length}`);
 
     //get all workflows
-    const workflowDirectory = path.join(__dirname, '../.github', 'workflows');
+    const workflowDirectory = path.join(__dirname, workspace, '.github/workflows');
     const files = await readDirAsync(workflowDirectory);
     console.log(`🎯workflow file count: ${files.length}`);
     for (const file of files) {

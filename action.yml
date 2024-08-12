@@ -15,6 +15,11 @@ inputs:
     description: 'The name of the current workflow.'
     required: true
     default: ${{ github.workflow }}
+  
+  workspace:
+    description: 'The workspace of the current repo.'
+    required: true
+    default: ${{ github.workspace }}
 
 runs:
   using: 'node20'
