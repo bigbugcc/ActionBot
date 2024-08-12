@@ -37,7 +37,7 @@ jobs:
       - name: Merge Upstream
         working-directory: /workdir/Admin.NET
         run: |
-          git remote add upstream ${{ env.repo }}
+          git remote add upstream ${{ env.repo_url }}
           git fetch upstream
           git remote
           git checkout next
