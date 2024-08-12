@@ -27,7 +27,7 @@ function getRepoUrlInfo(repo_url) {
     const splitRepository = repo_url.replace('.git', '').split('/');
     if (splitRepository.length < 4) {
         core.setFailed('Invalid repository');
-        throw new Error(`Invalid repository ${element.repo_url}.`);
+        throw new Error(`Invalid repository ${repo_url}.`);
     }
     return {
         owner: splitRepository[3],
