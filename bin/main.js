@@ -140,6 +140,7 @@ async function main() {
             if (data.name != workflow) {
                 const repo_url = data.env.repo_url || data.env.REPO_URL;
                 const force_active = data.env.force_active || 0;
+                console.log(`👀 repo_url: ${repo_url}, force_active: ${force_active}`);
                 if (force_active === 1 || repo_url) {
                     //force execute workflow, ignore repo commit id
                     workflowInfo.find(element => element.name == data.name).force_active = force_active;
