@@ -132,7 +132,7 @@ async function main() {
     console.log(`🎯workflow count: ${workflowInfo.length}`);
 
     //get all workflows
-    const workflowDirectory = path.join(__dirname, workspace, '.github/workflows');
+    const workflowDirectory = path.join(workspace, '.github/workflows');
     const files = await readDirAsync(workflowDirectory);
     console.log(`🎯workflow file count: ${files.length}`);
     for (const file of files) {
