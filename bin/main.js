@@ -7,6 +7,7 @@ const request = require('request');
 const fs = require('fs');
 const yaml = require('js-yaml');
 const path = require('path');
+const { Console } = require("console");
 const header = { 'X-GitHub-Api-Version': '2022-11-28' };
 const workflowInfo = new Array();
 const updatedWorkflows = new Array();
@@ -128,6 +129,7 @@ async function main() {
             workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '', force_active: 0, status: 1 });
         }
     });
+    console.log(`🎯workflow count: ${workflowInfo.length}`);
 
     //get all workflows
     const workflowDirectory = path.join(__dirname, '../.github', 'workflows');
@@ -137,10 +139,14 @@ async function main() {
         try {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
-            if (data.name != workflow) {
+
+            //exclude the original(ActionBot) repo workflow and trigger workflow
+            if (data.name != workflow && workflowInfo.find(element => element.name == data.name)) {
+                //default value
                 const repo_url = data.env.repo_url || data.env.REPO_URL;
                 const force_active = data.env.force_active || 0;
                 console.log(`👀 repo_url: ${repo_url}, force_active: ${force_active}`);
+
                 if (force_active === 1 || repo_url) {
                     //force execute workflow, ignore repo commit id
                     workflowInfo.find(element => element.name == data.name).force_active = force_active;
@@ -275,8 +281,7 @@ async function main() {
 
     //check error workflow
     const errorWork = updatedWorkflows.find(element => element.status === 0);
-    if(errorWork)
-    {
+    if (errorWork) {
         errorWork.forEach(element => {
             console.log(`⚠️ [ ${element.name} ] workflow is possible problems, please check the log!`);
         });
