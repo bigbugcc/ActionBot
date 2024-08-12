@@ -186,7 +186,7 @@ async function main() {
 
             //make repo cache key
             const repo_info = getRepoUrlInfo(element.repo_url);
-            const key = `${repo_info.owner}/${repo_info.repo_name}-${element.commitId}`.replace(/\s/g, '');
+            const key = `${repo_info.owner}:${repo_info.name}-${element.commitId}`.replace(/\s/g, '');
             //find cache key
             if (cacheKey = keys.find(e => e.key == key)) {
                 console.log(`👀 repo ：${element.name} Source do not update!`);
@@ -249,7 +249,7 @@ async function main() {
             try {
                 //write cache
                 const repo_info = getRepoUrlInfo(element.repo_url);
-                const key = `${repo_info.owner}/${repo_info.name}-${element.commitId}`.replace(/\s/g, '');
+                const key = `${repo_info.owner}:${repo_info.name}-${element.commitId}`.replace(/\s/g, '');
                 console.log(`🦄 Cache key: ${key}`);
                 const path = `repo_keys/`;
                 const cachePath = path + key;
