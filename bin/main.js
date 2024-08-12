@@ -23,16 +23,24 @@ function readDirAsync(path) {
     });
 }
 
+function getRepoUrlInfo(repo_url) {
+    const splitRepository = repo_url.replace('.git', '').split('/');
+    if (splitRepository.length < 4) {
+        core.setFailed('Invalid repository');
+        throw new Error(`Invalid repository ${element.repo_url}.`);
+    }
+    return {
+        repo_owner: splitRepository[3],
+        repo_name: splitRepository[4]
+    }
+}
+
 async function getCommitIds() {
     const promises = workflowInfo.map(async (element) => {
         if (element.repo_url) {
-            const splitRepository = element.repo_url.replace('.git', '').split('/');
-            if (splitRepository.length < 4) {
-                core.setFailed('Invalid repository');
-                throw new Error(`Invalid repository ${element.repo_url}.`);
-            }
-            const repo_owner = splitRepository[3];
-            const repo_name = splitRepository[4];
+            const repo_info = getRepoUrlInfo(element.repo_url);
+            const repo_owner = repo_info.repo_owner;
+            const repo_name = repo_info.repo_name;
 
             try {
                 if (element.repo_url.includes('github.com')) {
@@ -177,8 +185,8 @@ async function main() {
             }
 
             //make repo cache key
-            let key = `${element.id}-${element.name}-${element.commitId}`;
-            key = key.replace(/\s/g, '');
+            const repo_info = getRepoUrlInfo(element.repo_url);
+            const key = `${repo_info.owner}/${repo_info.repo_name}-${element.commitId}`.replace(/\s/g, '');
             //find cache key
             if (cacheKey = keys.find(e => e.key == key)) {
                 console.log(`👀 repo ：${element.name} Source do not update!`);
@@ -240,7 +248,8 @@ async function main() {
         if (element.commitId) {
             try {
                 //write cache
-                const key = `${element.id}-${element.name}-${element.commitId}`.replace(/\s/g, '');
+                const repo_info = getRepoUrlInfo(element.repo_url);
+                const key = `${repo_info.owner}/${repo_info.repo_name}-${element.commitId}`.replace(/\s/g, '');
                 console.log(`🦄 Cache key: ${key}`);
                 const path = `repo_keys/`;
                 const cachePath = path + key;
