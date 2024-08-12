@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  repo: 'https://github.com/bepass-org/warp-plus.git'
+  repo_url: 'https://github.com/bepass-org/warp-plus.git'
   docker-repo: 'bigbugcc/warp-plus'
   docker-file-path: ''
   platforms: 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64'

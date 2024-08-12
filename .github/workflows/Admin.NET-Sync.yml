@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  repo: 'https://gitee.com/zuohuaijun/Admin.NET.git'
+  repo_url: 'https://gitee.com/zuohuaijun/Admin.NET.git'
 
 jobs:
   sync:

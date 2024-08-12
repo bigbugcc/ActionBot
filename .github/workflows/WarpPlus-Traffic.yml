@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  repo: ''
+  repo_url: ''
   force_active: 2
 
 jobs:

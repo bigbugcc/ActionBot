@@ -138,12 +138,13 @@ async function main() {
             const fileContents = fs.readFileSync(filePath, 'utf8');
             const data = yaml.load(fileContents);
             if (data.name != workflow) {
-                if (data.env.force_active === 1 || data.env.repo) {
+                const repo_url = data.env.repo_url || data.env.REPO_URL;
+                if (data.env.force_active === 1 || repo_url) {
                     //force execute workflow, ignore repo commit id
                     workflowInfo.find(element => element.name == data.name).force_active = data.env.force_active;
-                    if (data.env.repo) {
+                    if (repo_url) {
                         //repo commit id execute workflow
-                        workflowInfo.find(element => element.name == data.name).repo_url = data.env.repo;
+                        workflowInfo.find(element => element.name == data.name).repo_url = repo_url;
                     }
                     continue;
                 } else {
