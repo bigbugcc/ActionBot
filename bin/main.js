@@ -30,8 +30,8 @@ function getRepoUrlInfo(repo_url) {
         throw new Error(`Invalid repository ${element.repo_url}.`);
     }
     return {
-        repo_owner: splitRepository[3],
-        repo_name: splitRepository[4]
+        owner: splitRepository[3],
+        name: splitRepository[4]
     }
 }
 
@@ -39,8 +39,8 @@ async function getCommitIds() {
     const promises = workflowInfo.map(async (element) => {
         if (element.repo_url) {
             const repo_info = getRepoUrlInfo(element.repo_url);
-            const repo_owner = repo_info.repo_owner;
-            const repo_name = repo_info.repo_name;
+            const repo_owner = repo_info.owner;
+            const repo_name = repo_info.name;
 
             try {
                 if (element.repo_url.includes('github.com')) {
@@ -249,7 +249,7 @@ async function main() {
             try {
                 //write cache
                 const repo_info = getRepoUrlInfo(element.repo_url);
-                const key = `${repo_info.owner}/${repo_info.repo_name}-${element.commitId}`.replace(/\s/g, '');
+                const key = `${repo_info.owner}/${repo_info.name}-${element.commitId}`.replace(/\s/g, '');
                 console.log(`🦄 Cache key: ${key}`);
                 const path = `repo_keys/`;
                 const cachePath = path + key;
