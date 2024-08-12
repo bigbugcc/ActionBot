@@ -141,7 +141,7 @@ async function main() {
                 const repo_url = data.env.repo_url || data.env.REPO_URL;
                 if (data.env.force_active === 1 || repo_url) {
                     //force execute workflow, ignore repo commit id
-                    workflowInfo.find(element => element.name == data.name).force_active = data.env.force_active;
+                    workflowInfo.find(element => element.name == data.name).force_active = data.env.force_active || 0;
                     if (repo_url) {
                         //repo commit id execute workflow
                         workflowInfo.find(element => element.name == data.name).repo_url = repo_url;
