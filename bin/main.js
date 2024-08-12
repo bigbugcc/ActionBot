@@ -133,30 +133,31 @@ async function main() {
     //get all workflows
     const workflowDirectory = path.join(__dirname, '../.github', 'workflows');
     const files = await readDirAsync(workflowDirectory);
+    console.log(`🎯workflow file count: ${files.length}`);
     for (const file of files) {
         const filePath = path.join(workflowDirectory, file);
         try {
             const fileContents = fs.readFileSync(filePath, 'utf8');
-            const data = yaml.load(fileContents);
+            const wfInfo = yaml.load(fileContents);
 
             //exclude the original(ActionBot) repo workflow and trigger workflow
-            if (data.name != workflow && workflowInfo.find(element => element.name == data.name)) {
+            if (wfInfo.name != workflow && workflowInfo.find(element => element.name == wfInfo.name)) {
                 //default value
-                const repo_url = data.env.repo_url || data.env.REPO_URL;
-                const force_active = data.env.force_active || 0;
+                const repo_url = wfInfo.env.repo_url || wfInfo.env.REPO_URL;
+                const force_active = wfInfo.env.force_active || 0;
                 console.log(`👀 repo_url: ${repo_url}, force_active: ${force_active}`);
 
                 if (force_active === 1 || repo_url) {
                     //force execute workflow, ignore repo commit id
-                    workflowInfo.find(element => element.name == data.name).force_active = force_active;
+                    workflowInfo.find(element => element.name == wfInfo.name).force_active = force_active;
                     if (repo_url) {
                         //repo commit id execute workflow
-                        workflowInfo.find(element => element.name == data.name).repo_url = repo_url;
+                        workflowInfo.find(element => element.name == wfInfo.name).repo_url = repo_url;
                     }
                     continue;
                 } else {
                     //exclude workflow
-                    const index = workflowInfo.findIndex(element => element.name == data.name);
+                    const index = workflowInfo.findIndex(element => element.name == wfInfo.name);
                     if (index !== -1) {
                         workflowInfo.splice(index, 1);
                     }
@@ -195,6 +196,7 @@ async function main() {
             //make repo cache key
             const repo_info = getRepoUrlInfo(element.repo_url);
             const key = `${repo_info.owner}:${repo_info.name}@${element.commitId}`.replace(/\s/g, '');
+
             //find cache key
             if (cacheKey = keys.find(e => e.key == key)) {
                 console.log(`👀 repo ：${element.name} Source do not update!`);
