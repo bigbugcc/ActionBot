@@ -35,6 +35,7 @@
 | :------------------------: | :---------------------: | :-------------------: | :-------------------: | :--------------------------: | :--------------------------: |
 |             3x-ui                   |  Docker | [🚩](https://github.com/MHSanaei/3x-ui) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui-Docker.yml) | ![3x-ui](https://github.com/bigbugcc/ActionBot/actions/workflows/3x-ui-Docker.yml/badge.svg) |  [✔](https://hub.docker.com/r/bigbugcc/3x-ui) |
 |             Admin.NET                   |  镜像库| [🚩](https://gitee.com/zuohuaijun/Admin.NET) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET-Sync.yml) | ![Admin.NET](https://github.com/bigbugcc/ActionBot/actions/workflows/Admin.NET-Sync.yml/badge.svg) |  [✔](https://github.com/bigbugcc/Admin.NET) |
+|             OpenWRT                   |  Build| [🚩](https://github.com/coolsnowwolf/lede) |[🍕](https://github.com/bigbugcc/openwrts/actions/workflows/update-checker.yml) | ![Admin.NET](https://github.com/bigbugcc/openwrts/actions/workflows/update-checker.yml/badge.svg) |  [✔](https://github.com/bigbugcc/OpenWrts) |
 |             WarpPlus-Traffic                   |  Task | [🚩](https://github.com/bigbugcc/ActionBot) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Traffic.yml/badge.svg) |  [✔](https://github.com/bigbugcc/ActionBot/blob/main/bin/warp/warp.py) |
 |             WarpPlus-Docker                  |  Docker | [🚩](https://github.com/bepass-org/warp-plus) |[🍕](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Docker.yml) | ![WarpPlus](https://github.com/bigbugcc/ActionBot/actions/workflows/WarpPlus-Docker.yml/badge.svg) |  [✔](https://hub.docker.com/r/bigbugcc/warp-plus) |
 
@@ -45,8 +46,14 @@ ActionBot 是一个监听自动化执行项目，ActionBot会检测当前仓库�
 
 ### Usage
 ```yaml
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
     - name: AutoTrigger
       uses: bigbugcc/ActionBot@main
+
+    ...
 ```
 
 ### Actoin Param
@@ -65,15 +72,20 @@ token:
     description: 'The name of the current workflow.'
     required: true
     default: ${{ github.workflow }}
+
+  workspace:
+    description: 'The workspace of the current repo.'
+    required: true
+    default: ${{ github.workspace }}
 ```
 
 ### Trigger Param
 ```yaml
 env:
-  repo: '' 
+  repo_url: '' 
   force_active: 1
 ```
-- repo : 监听的仓库地址，根据该地址判断commitId是否变化，而触发当前`Workflow`；可以为空。
+- repo_url : 监听的仓库地址，根据该地址判断commitId是否变化，而触发当前`Workflow`；可以为空。
 - force_active : `0，1，2`  
     `0` -> 默认值，会根据repo的值进行判断；   
     `1` -> 强制执行当前`Workflow`，不判断CommitId；  
@@ -96,6 +108,7 @@ docker run -itd \
 ```
 #### Default Setting
 - **Port:** 2053
+- **TimeZone:** Asia/Shanghai
 - **Username & Password:** It will be generated randomly if you skip modifying.
 - **Database Path:**
   - /etc/x-ui/x-ui.db
