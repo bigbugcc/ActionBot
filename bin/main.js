@@ -10,12 +10,10 @@ const path = require('path');
 const { Console } = require("console");
 const header = { 'X-GitHub-Api-Version': '2022-11-28' };
 const workflowInfo = new Array();
-const updatedWorkflows = new Array();
 const updatedKey = new Set();
 //current repo
 let Owner = "";
 let Repo = "";
-
 
 function readDirAsync(path) {
     return new Promise((resolve, reject) => {
@@ -164,7 +162,6 @@ async function main() {
     //get all workflows
     const workflowDirectory = path.join(workspace, '.github/workflows');
     const files = await readDirAsync(workflowDirectory);
-    console.log(`🎯workflow file count: ${files.length}`);
     for (const file of files) {
         const filePath = path.join(workflowDirectory, file);
         try {
@@ -198,8 +195,8 @@ async function main() {
             console.log(e);
         }
     }
+    
     if (workflowInfo.length < 1) { core.setFailed('❌ Not Workflow'); return; }
-
     await getCommitIds();
 
     //get cache key
@@ -226,22 +223,22 @@ async function main() {
 
             //find cache key
             if (cacheKey = keys.find(e => e.key == element.update_key)) {
-                console.log(`👀 repo ：${element.name} Source do not update!`);
+                console.log(`☕ repo ：${element.name} Source do not update!`);
             } else {
-                console.log(`👀 repo ：${element.name} Source is updated!`);
+                console.log(`✅ repo ：${element.name} Source is updated!`);
                 //trigger workflows
                 triggerWorkflow(element);
             }
         }
     } else {
-        //All Updates
+        //all Updates
         workflowInfo.forEach(element => {
             triggerWorkflow(element);
         });
         console.log('🦄 Not Found Cache! will trigger all workflows!')
     }
 
-    //Clear invalid cache
+    //clear cache
     updatedKey.forEach(element => {
         if(element){
             const invalidKeys = caches.data.actions_caches.filter(e => e.key.includes(element.split('@')[0]));
@@ -266,26 +263,21 @@ async function main() {
         }
     });
     
-    //Action write caches
+    //action write caches
     for(const key in updatedKey){
         if (key) {
             try {
                 //write cache
                 const key = element.update_key;
-                console.log(`🦄 Cache key: ${key}`);
                 const path = `repo_keys/`;
                 const cachePath = path + key;
-                // Create cache folder
+                //create cache
                 await mkdirp(path);
-                //create cache file
                 await fs.writeFileSync(cachePath, Buffer.from(key, 'utf-8'), 'binary');
-
-                const files = await readDirAsync(path);
-                console.log(`🦄 Directory files : ${files}`);
 
                 const paths = [`${cachePath}`];
                 const cacheId = await cache.saveCache(paths, key);
-                console.log(`🦄 Cache key saved: ${cacheId}`);
+                console.log(`🦄 Cache saved: ${cacheId} Cache key: ${key}`);
             } catch (error) {
                 core.setFailed(error);
             }
@@ -293,7 +285,7 @@ async function main() {
     }
 
     //check error workflow
-    const errorWork = updatedWorkflows.find(element => element.status === 0);
+    const errorWork = workflowInfo.find(element => element.status === 0);
     if (errorWork) {
         errorWork.forEach(element => {
             console.log(`⚠️ [ ${element.name} ] workflow is possible problems, please check the log!`);
