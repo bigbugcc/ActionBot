@@ -11,7 +11,11 @@ const { Console } = require("console");
 const header = { 'X-GitHub-Api-Version': '2022-11-28' };
 const workflowInfo = new Array();
 const updatedWorkflows = new Array();
-const updatedKey = new Array();
+const updatedKey = new Set();
+//current repo
+let Owner = "";
+let Repo = "";
+
 
 function readDirAsync(path) {
     return new Promise((resolve, reject) => {
@@ -99,6 +103,29 @@ function mkdirp(dir) {
     fs.mkdirSync(dir);
 }
 
+async function triggerWorkflow(element) {
+    if(element.update_key){
+        updatedKey.add(element.update_key);
+    }
+
+    await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+        owner: Owner,
+        repo: Repo,
+        workflow_id: element.id,
+        ref: 'main',
+        inputs: {},
+        headers: header
+    }).then((response) => {
+        if (response.status == 204) {
+            console.log(`🚀 The ${element.name} workflow was activated successfully and is running!`);
+        } else {
+            console.log(`⚠️ The ${element.name} workflow failed to activate, please check the workflow configuration!`);
+        }
+    }).catch((error) => {
+        console.log(`❌ The ${element.name} workflow error: ${error}`);
+    });
+}
+
 async function main() {
     let token = core.getInput('token');
     let repository = core.getInput('repository');
@@ -116,13 +143,13 @@ async function main() {
     if (splitRepository.length !== 2 || !splitRepository[0] || !splitRepository[1]) {
         throw new Error(`❌ Invalid repository '${repository}'. Expected format {owner}/{repo}.`);
     }
-    const repo_owner = splitRepository[0];
-    const repo_name = splitRepository[1];
+    Owner = splitRepository[0];
+    Repo = splitRepository[1];
 
     //get all workflows
     const workflowslist = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows', {
-        owner: repo_owner,
-        repo: repo_name,
+        owner: Owner,
+        repo: Repo,
         headers: header
     })
 
@@ -175,10 +202,10 @@ async function main() {
 
     await getCommitIds();
 
-    //获取cache key
+    //get cache key
     const caches = await octokit.request('GET /repos/{owner}/{repo}/actions/caches', {
-        owner: repo_owner,
-        repo: repo_name,
+        owner: Owner,
+        repo: Repo,
         headers: header
     })
 
@@ -193,7 +220,7 @@ async function main() {
             }
             //force active workflow
             if (element.force_active === 1) {
-                updatedWorkflows.push(element);
+                triggerWorkflow(element);
                 continue;
             }
 
@@ -203,25 +230,26 @@ async function main() {
             } else {
                 console.log(`👀 repo ：${element.name} Source is updated!`);
                 //trigger workflows
-                updatedWorkflows.push(element);
+                triggerWorkflow(element);
             }
         }
     } else {
+        //All Updates
         workflowInfo.forEach(element => {
-            updatedWorkflows.push(element);
+            triggerWorkflow(element);
         });
         console.log('🦄 Not Found Cache! will trigger all workflows!')
     }
 
     //Clear invalid cache
-    updatedWorkflows.forEach(element => {
-        if(element.update_key){
-            const invalidKeys = caches.data.actions_caches.filter(e => e.key.includes(element.update_key.split('@')[0]));
+    updatedKey.forEach(element => {
+        if(element){
+            const invalidKeys = caches.data.actions_caches.filter(e => e.key.includes(element.split('@')[0]));
             if (invalidKeys.length > 0) {
                 invalidKeys.forEach(async e => {
                     await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
-                        owner: repo_owner,
-                        repo: repo_name,
+                        owner: Owner,
+                        repo: Repo,
                         headers: header,
                         cache_id: e.id
                     }).then((response) => {
@@ -237,30 +265,9 @@ async function main() {
             }
         }
     });
-
-    //trigger workflow
-    for (const element of updatedWorkflows) {
-        await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
-            owner: repo_owner,
-            repo: repo_name,
-            workflow_id: element.id,
-            ref: 'main',
-            inputs: {},
-            headers: header
-        }).then((response) => {
-            if (response.status == 204) {
-                console.log(`🚀 The ${element.name} workflow was activated successfully and is running!`);
-            } else {
-                console.log(`⚠️ The ${element.name} workflow failed to activate, please check the workflow configuration!`);
-            }
-        }).catch((error) => {
-            console.log(`❌ The ${element.name} workflow error: ${error}`);
-        });
-    }
     
     //Action write caches
-    const cachesKey = [...new Set(updatedWorkflows.map(item => item.update_key))];
-    for(const key in cachesKey){
+    for(const key in updatedKey){
         if (key) {
             try {
                 //write cache
