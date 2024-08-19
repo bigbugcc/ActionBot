@@ -11,6 +11,7 @@ const { Console } = require("console");
 const header = { 'X-GitHub-Api-Version': '2022-11-28' };
 const workflowInfo = new Array();
 const updatedWorkflows = new Array();
+const updatedKey = new Array();
 
 function readDirAsync(path) {
     return new Promise((resolve, reject) => {
@@ -51,7 +52,8 @@ async function getCommitIds() {
                     });
                     const commitId = response.data[0].sha;
                     console.log(`🎯 Github RepoName:${element.name} Last_CommitID：${commitId}`);
-                    element.commitId = commitId;
+                    const key = `${repo_owner}:${repo_name}@${commitId}`.replace(/\s/g, '');
+                    element.update_key = key;
                 } else if (element.repo_url.includes('gitee.com')) {
                     const options = {
                         url: `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`,
@@ -72,7 +74,8 @@ async function getCommitIds() {
                     });
                     const commitId = body[0].sha;
                     console.log(`🎯 Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
-                    element.commitId = commitId;
+                    const key = `${repo_owner}:${repo_name}@${commitId}`.replace(/\s/g, '');
+                    element.update_key = key;
                 } else {
                     //core.setFailed('❌ Invalid repository');
                     element.status = 0;
@@ -126,7 +129,7 @@ async function main() {
     workflowslist.data.workflows.forEach(element => {
         if (element.name != workflow) {
             //force_active parameter: 0:default, 1:force execute, 2:ignore
-            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', commitId: '', force_active: 0, status: 1 });
+            workflowInfo.push({ id: element.id, name: element.name, repo_url: '', update_key: '', force_active: 0, status: 1 });
         }
     });
     console.log(`🎯workflow count: ${workflowInfo.length}`);
@@ -194,16 +197,12 @@ async function main() {
                 continue;
             }
 
-            //make repo cache key
-            const repo_info = getRepoUrlInfo(element.repo_url);
-            const key = `${repo_info.owner}:${repo_info.name}@${element.commitId}`.replace(/\s/g, '');
-
             //find cache key
-            if (cacheKey = keys.find(e => e.key == key)) {
+            if (cacheKey = keys.find(e => e.key == element.update_key)) {
                 console.log(`👀 repo ：${element.name} Source do not update!`);
             } else {
                 console.log(`👀 repo ：${element.name} Source is updated!`);
-                //trigger workflow
+                //trigger workflows
                 updatedWorkflows.push(element);
             }
         }
@@ -216,24 +215,26 @@ async function main() {
 
     //Clear invalid cache
     updatedWorkflows.forEach(element => {
-        const invalidKeys = caches.data.actions_caches.filter(e => e.key.includes(element.id));
-        if (invalidKeys.length > 0) {
-            invalidKeys.forEach(async e => {
-                await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
-                    owner: repo_owner,
-                    repo: repo_name,
-                    headers: header,
-                    cache_id: e.id
-                }).then((response) => {
-                    if (response.status == 204) {
-                        console.log(`🚀 Delete Key: ${e.key} completed!`);
-                    } else {
-                        console.log(`⚠️ Exception when deleting Key: ${response} `);
-                    }
-                }).catch((error) => {
-                    console.log(`❌ Delete Key: ${e.key} Failed！ workflow error: ${error}`);
+        if(element.update_key){
+            const invalidKeys = caches.data.actions_caches.filter(e => e.key.includes(element.update_key.split('@')[0]));
+            if (invalidKeys.length > 0) {
+                invalidKeys.forEach(async e => {
+                    await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
+                        owner: repo_owner,
+                        repo: repo_name,
+                        headers: header,
+                        cache_id: e.id
+                    }).then((response) => {
+                        if (response.status == 204) {
+                            console.log(`🚀 Delete Key: ${e.key} completed!`);
+                        } else {
+                            console.log(`⚠️ Exception when deleting Key: ${response} `);
+                        }
+                    }).catch((error) => {
+                        console.log(`❌ Delete Key: ${e.key} Failed！ workflow error: ${error}`);
+                    });
                 });
-            });
+            }
         }
     });
 
@@ -255,12 +256,15 @@ async function main() {
         }).catch((error) => {
             console.log(`❌ The ${element.name} workflow error: ${error}`);
         });
-
-        if (element.commitId) {
+    }
+    
+    //Action write caches
+    const cachesKey = [...new Set(updatedWorkflows.map(item => item.update_key))];
+    for(const key in cachesKey){
+        if (key) {
             try {
                 //write cache
-                const repo_info = getRepoUrlInfo(element.repo_url);
-                const key = `${repo_info.owner}:${repo_info.name}@${element.commitId}`.replace(/\s/g, '');
+                const key = element.update_key;
                 console.log(`🦄 Cache key: ${key}`);
                 const path = `repo_keys/`;
                 const cachePath = path + key;
@@ -287,7 +291,7 @@ async function main() {
         errorWork.forEach(element => {
             console.log(`⚠️ [ ${element.name} ] workflow is possible problems, please check the log!`);
         });
-        core.setFailed('❌ Some workflows failed, please check !');
+        core.setFailed('❌ Some workflows failed, please check!');
     }
 }
 main();
