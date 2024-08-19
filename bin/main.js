@@ -195,7 +195,7 @@ async function main() {
             console.log(e);
         }
     }
-    
+
     if (workflowInfo.length < 1) { core.setFailed('❌ Not Workflow'); return; }
     await getCommitIds();
 
@@ -251,7 +251,7 @@ async function main() {
                         cache_id: e.id
                     }).then((response) => {
                         if (response.status == 204) {
-                            console.log(`🚀 Delete Key: ${e.key} completed!`);
+                            console.log(`🚀 Delete Cache: ${e.key} completed!`);
                         } else {
                             console.log(`⚠️ Exception when deleting Key: ${response} `);
                         }
@@ -268,7 +268,6 @@ async function main() {
         if (key) {
             try {
                 //write cache
-                const key = element.update_key;
                 const path = `repo_keys/`;
                 const cachePath = path + key;
                 //create cache
