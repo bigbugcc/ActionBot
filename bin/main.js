@@ -264,11 +264,11 @@ async function main() {
     });
     
     //action write caches
-    for(const key in updatedKey){
+    for(const key of updatedKey){
         if (key) {
             try {
                 //write cache
-                const path = `repo_keys/`;
+                const path = "repo_keys/";
                 const cachePath = path + key;
                 //create cache
                 await mkdirp(path);
