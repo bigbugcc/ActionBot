@@ -93,8 +93,8 @@ jobs:
           prerelease: false
           body: | 
             Release Note:
-            - [ DockerHub🐬 ](https://hub.docker.com/r/${{ env.docker-repo }})
             - ![](https://img.shields.io/docker/pulls/bigbugcc/3x-ui.svg?style=flat-square)
+            - [ DockerHub🐬 ](https://hub.docker.com/r/${{ env.docker-repo }})
             - 🎯Use: `docker pull bigbugcc/3x-ui:latest`
             - 👇Or download the Docker image and import it manually
           files: | 
