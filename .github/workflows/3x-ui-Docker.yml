@@ -6,7 +6,6 @@ on:
 env:
   repo_url: https://github.com/MHSanaei/3x-ui.git
   docker-repo: 'bigbugcc/3x-ui'
-  docker-file-path: ''
   platforms: 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64'
   configure-sh: './bin/3x-ui/configure.sh'
 
@@ -48,24 +47,23 @@ jobs:
           cat ./Dockerfile
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build docker
         id: docker
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./workdir
           push: true
-          file: ${{ env.docker-file-path }}
           platforms: ${{ env.platforms }}
           tags: | 
             ${{ env.docker-repo }}:latest
