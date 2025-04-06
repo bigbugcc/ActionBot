@@ -32,7 +32,7 @@ jobs:
         run: |
           git clone https://github.com/bigbugcc/Admin.NET.git
           cd Admin.NET
-          git checkout next
+          git checkout v2
 
       - name: Merge Upstream
         working-directory: /workdir/Admin.NET
@@ -40,14 +40,14 @@ jobs:
           git remote add upstream ${{ env.repo_url }}
           git fetch upstream
           git remote
-          git checkout next
-          git merge upstream/next --no-edit
+          git checkout v2
+          git merge upstream/v2 --no-edit
 
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.UPDATE_TOKEN }}
           directory: /workdir/Admin.NET
-          branch: next
+          branch: v2
           repository: bigbugcc/Admin.NET
           force: true
