@@ -125,15 +125,19 @@ async function triggerWorkflow(element) {
 }
 
 async function main() {
-    let token = core.getInput('token');
-    let repository = core.getInput('repository');
-    let workflow = core.getInput('workflow');
-    let workspace = core.getInput('workspace');
-    //Local test
-    // if (token == '' || repository == '') {
-    //     token = authtoken;
-    //     repository = crepos;
-    // }
+    const isDebugMode = process.argv.includes('--debug');
+    if (isDebugMode) {
+        try {
+          require('dotenv').config();
+          console.log('🔧 Debug mode active: Loading environment variables from .env file');
+        } catch (error) {
+          console.warn('⚠️ Failed to load .env file:', error.message);
+        }
+    }
+    let token = core.getInput('token') || process.env.GITHUB_TOKEN;
+    let repository = core.getInput('repository') || process.env.GITHUB_REPOSITORY;
+    let workflow = core.getInput('workflow') || process.env.GITHUB_WORKFLOW;
+    let workspace = core.getInput('workspace') || process.env.GITHUB_WORKSPACE;
     octokit = new Octokit({ auth: token });
 
     //repo owner and repo name
