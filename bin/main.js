@@ -280,7 +280,11 @@ async function main() {
 
                 const paths = [`${cachePath}`];
                 const cacheId = await cache.saveCache(paths, key);
-                console.log(`🦄 Cache saved: ${cacheId} Cache key: ${key}`);
+                if (cacheId <= 0) {
+                    core.warning(`⚠️⚠️⚠️ Warning: Cache not saved: ${cacheId} Cache key: ${key}`);
+                }else{
+                    console.log(`🦄 Cache saved: ${cacheId} Cache key: ${key}`);
+                }
             } catch (error) {
                 core.setFailed(error);
             }
