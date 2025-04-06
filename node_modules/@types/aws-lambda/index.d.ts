@@ -30,6 +30,7 @@ export * from "./trigger/dynamodb-stream";
 export * from "./trigger/eventbridge";
 // ElastiCache section just describes using lambdas in an ElastiCache context (VPC issues, etc.)
 // EC2 events are delivered using cloudwatch events...
+export * from "./trigger/guard-duty-event-notification";
 export * from "./trigger/iot";
 export * from "./trigger/iot-authorizer";
 export * from "./trigger/kinesis-firehose-transformation";
@@ -48,5 +49,6 @@ export * from "./trigger/self-managed-kafka";
 export * from "./trigger/ses";
 export * from "./trigger/sns";
 export * from "./trigger/sqs";
+export * from "./trigger/transfer-family-authorizer";
 
 export as namespace AWSLambda;
