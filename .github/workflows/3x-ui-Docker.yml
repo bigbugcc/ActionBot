@@ -6,7 +6,7 @@ on:
 env:
   repo_url: https://github.com/MHSanaei/3x-ui.git
   docker-repo: 'bigbugcc/3x-ui'
-  platforms: 'linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64'
+  platforms: 'linux/386,linux/amd64,linux/arm64'
   configure-sh: './bin/3x-ui/configure.sh'
 
 jobs:  
