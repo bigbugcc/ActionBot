@@ -79,9 +79,6 @@ jobs:
         run: |
           docker pull --platform linux/amd64 ${{ env.docker-repo }}:latest
           docker save -o warp-plus-amd64-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest
-          docker rmi ${{ env.docker-repo }}:latest
-          docker pull --platform linux/arm64 ${{ env.docker-repo }}:latest
-          docker save -o warp-plus-arm64-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest
         
       - name: Create Release
         id: release
