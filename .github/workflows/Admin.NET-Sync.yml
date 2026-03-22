@@ -39,9 +39,8 @@ jobs:
         run: |
           git remote add upstream ${{ env.repo_url }}
           git fetch upstream
-          git remote
           git checkout v2
-          git merge upstream/v2 --no-edit
+          git reset --hard upstream/v2
 
       - name: Push changes
         uses: ad-m/github-push-action@master
