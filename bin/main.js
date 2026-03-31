@@ -22,37 +22,46 @@ function getRepoUrlInfo(repo_url) {
     }
 }
 
+async function fetchLatestCommitId(repo_url, branch) {
+    const repo_info = getRepoUrlInfo(repo_url);
+    const repo_owner = repo_info.owner;
+    const repo_name = repo_info.name;
+
+    if (repo_url.includes('github.com')) {
+        const params = {
+            owner: repo_owner,
+            repo: repo_name,
+            headers: header
+        };
+        if (branch) params.sha = branch;
+        const response = await octokit.request('GET /repos/{owner}/{repo}/commits', params);
+        const commitId = response.data[0].sha;
+        const branchLabel = branch || 'default';
+        console.log(`🎯 Github Repo: ${repo_owner}/${repo_name} [${branchLabel}] Last_CommitID：${commitId}`);
+        return { commitId, key: `${repo_owner}:${repo_name}@${commitId}`.replace(/\s/g, '') };
+    } else if (repo_url.includes('gitee.com')) {
+        let url = `https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`;
+        if (branch) url += `?sha=${encodeURIComponent(branch)}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const body = await response.json();
+        const commitId = body[0].sha;
+        const branchLabel = branch || 'default';
+        console.log(`🎯 Gitee Repo: ${repo_owner}/${repo_name} [${branchLabel}] Last_CommitID：${commitId}`);
+        return { commitId, key: `${repo_owner}:${repo_name}@${commitId}`.replace(/\s/g, '') };
+    } else {
+        throw new Error(`⚠️ ${repo_url} is Invalid repository url, please check the url`);
+    }
+}
+
 async function getCommitIds() {
     const promises = workflowInfo.map(async (element) => {
         if (!element.repo_url) return;
-
-        const repo_info = getRepoUrlInfo(element.repo_url);
-        const repo_owner = repo_info.owner;
-        const repo_name = repo_info.name;
-
         try {
-            if (element.repo_url.includes('github.com')) {
-                const response = await octokit.request('GET /repos/{owner}/{repo}/commits', {
-                    owner: repo_owner,
-                    repo: repo_name,
-                    headers: header
-                });
-                const commitId = response.data[0].sha;
-                console.log(`🎯 Github RepoName:${element.name} Last_CommitID：${commitId}`);
-                element.update_key = `${repo_owner}:${repo_name}@${commitId}`.replace(/\s/g, '');
-            } else if (element.repo_url.includes('gitee.com')) {
-                const response = await fetch(`https://gitee.com/api/v5/repos/${repo_owner}/${repo_name}/commits`, {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const body = await response.json();
-                const commitId = body[0].sha;
-                console.log(`🎯 Gitee RepoName:${element.name} Last_CommitID：${commitId}`);
-                element.update_key = `${repo_owner}:${repo_name}@${commitId}`.replace(/\s/g, '');
-            } else {
-                element.status = 0;
-                core.warning(`⚠️ ${element.repo_url} is Invalid repository url, please check the url`);
-            }
+            const result = await fetchLatestCommitId(element.repo_url);
+            element.update_key = result.key;
         } catch (error) {
             element.status = 0;
             core.warning(`⚠️ ${element.repo_url} possible problems, log: ${error}`);
@@ -86,6 +95,96 @@ async function triggerWorkflow(element) {
     }
 }
 
+async function checkSingleRepo(repo_url, branch) {
+    if (!repo_url) {
+        core.setFailed('❌ check mode requires repo_url input');
+        return;
+    }
+
+    console.log(`🔍 Check mode: monitoring ${repo_url}${branch ? ' [' + branch + ']' : ''}`);
+
+    //fetch latest commit id
+    let result;
+    try {
+        result = await fetchLatestCommitId(repo_url, branch);
+    } catch (error) {
+        core.setFailed(`❌ Failed to fetch commit ID: ${error.message}`);
+        return;
+    }
+
+    const updateKey = result.key;
+    const repoPrefix = updateKey.split('@')[0];
+    console.log(`🔑 Current key: ${updateKey}`);
+
+    //get existing caches
+    const caches = await octokit.request('GET /repos/{owner}/{repo}/actions/caches', {
+        owner: Owner,
+        repo: Repo,
+        headers: header
+    });
+
+    //check if the key already exists in cache
+    const existingCache = caches.data.actions_caches.find(e => e.key === updateKey);
+    if (existingCache) {
+        console.log(`☕ Source has not been updated, commit ID matches cache. Cancelling workflow.`);
+        core.setOutput('updated', 'false');
+        //cancel current workflow run
+        const runId = process.env.GITHUB_RUN_ID;
+        if (runId) {
+            try {
+                await octokit.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel', {
+                    owner: Owner,
+                    repo: Repo,
+                    run_id: runId,
+                    headers: header
+                });
+                console.log(`🛑 Workflow run ${runId} cancelled.`);
+            } catch (error) {
+                core.warning(`⚠️ Failed to cancel workflow run: ${error}`);
+            }
+        }
+        return;
+    }
+
+    console.log(`✅ Source is updated! New commit detected.`);
+    core.setOutput('updated', 'true');
+
+    //clear old caches for this repo
+    const oldCaches = caches.data.actions_caches.filter(e => e.key.includes(repoPrefix));
+    for (const e of oldCaches) {
+        try {
+            const response = await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
+                owner: Owner,
+                repo: Repo,
+                headers: header,
+                cache_id: e.id
+            });
+            if (response.status === 204) {
+                console.log(`🚀 Delete old cache: ${e.key} completed!`);
+            }
+        } catch (error) {
+            console.log(`❌ Delete cache: ${e.key} failed: ${error}`);
+        }
+    }
+
+    //save new cache key
+    try {
+        const dir = "repo_keys/";
+        const cachePath = dir + updateKey;
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(cachePath, Buffer.from(updateKey, 'utf-8'), 'binary');
+
+        const cacheId = await cache.saveCache([cachePath], updateKey);
+        if (cacheId <= 0) {
+            core.warning(`⚠️ Warning: Cache not saved: ${cacheId} Cache key: ${updateKey}`);
+        } else {
+            console.log(`🦄 Cache saved: ${cacheId} Cache key: ${updateKey}`);
+        }
+    } catch (error) {
+        core.warning(`⚠️ Failed to save cache: ${error}`);
+    }
+}
+
 async function main() {
     const isDebugMode = process.argv.includes('--debug');
     if (isDebugMode) {
@@ -100,6 +199,9 @@ async function main() {
     const repository = core.getInput('repository') || process.env.GITHUB_REPOSITORY;
     const workflow = core.getInput('workflow') || process.env.GITHUB_WORKFLOW;
     const workspace = core.getInput('workspace') || process.env.GITHUB_WORKSPACE;
+    const mode = core.getInput('mode') || process.env.ACTION_MODE || 'trigger';
+    const repo_url = core.getInput('repo_url') || process.env.REPO_URL || '';
+    const branch = core.getInput('branch') || process.env.REPO_BRANCH || '';
     octokit = new Octokit({ auth: token });
 
     const splitRepository = repository.split('/');
@@ -109,7 +211,13 @@ async function main() {
     Owner = splitRepository[0];
     Repo = splitRepository[1];
 
-    //get all workflows
+    //check mode: single repo update check
+    if (mode === 'check') {
+        await checkSingleRepo(repo_url, branch);
+        return;
+    }
+
+    //trigger mode: original behavior - get all workflows
     const workflowslist = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows', {
         owner: Owner,
         repo: Repo,
