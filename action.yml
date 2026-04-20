@@ -21,6 +21,25 @@ inputs:
     required: true
     default: ${{ github.workspace }}
 
+  mode:
+    description: 'Running mode. "trigger": trigger other workflows (default), "check": check single repo update and set output.'
+    required: false
+    default: 'trigger'
+
+  repo_url:
+    description: 'The repository URL to monitor (used in check mode).'
+    required: false
+    default: ''
+
+  branch:
+    description: 'The branch name to monitor. Defaults to the repo default branch.'
+    required: false
+    default: ''
+
+outputs:
+  updated:
+    description: 'Whether the source repo has been updated (true/false). Only set in check mode.'
+
 runs:
   using: 'node20'
   main: 'bin/main.js'
