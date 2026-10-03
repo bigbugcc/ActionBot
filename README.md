@@ -118,6 +118,16 @@ env:
 
 # ActionBot Example
 ## 3x-ui-Docker
+### 构建与版本标签
+
+- 自动触发默认构建官方 `main`，发布 `dev`、`dev-<源码SHA前12位>` 和 `sha-<源码SHA前12位>`；开发构建不会覆盖 `latest` 或正式版本标签。
+- 手动执行 workflow 时，`source_ref` 可填写官方分支、commit 或 tag。选择正式 `vX.Y.Z` tag 才会发布 `latest`、`vX.Y.Z` 和 `X.Y.Z`；其他 ref 按开发构建处理。
+- 镜像 labels、Release 说明和 `source.json` 记录官方源码 SHA。开发版面板也会显示对应 commit；开发构建的 Release 标记为预发布。
+- 构建首先推送唯一临时标签 `build-<run_id>-<attempt>`；五个平台校验和离线包导出成功后，才将同一镜像 digest 发布到对外标签，并核对发布后的 digest。校验失败不会更新 `dev`、`latest` 或版本标签；Release 上传失败时已发布镜像仍然有效。
+- 开发版二进制的 `buildDate` 使用源码 commit 的 UTC 时间，同一源码 SHA 重跑可复用编译缓存；实际 workflow 运行时间另存于镜像 labels、`source.json` 和 Release 说明。
+- 支持 `linux/386`、`linux/amd64`、`linux/arm64/v8`、`linux/arm/v7`、`linux/arm/v6`。各平台都提供 `.tar.gz` 离线镜像，下载后先执行 `sha256sum -c SHA256SUMS`，再用 `gzip -dc 3x-ui-ARCH-VERSION.tar.gz | docker load` 导入；导入后的标签为 `bigbugcc/3x-ui:VERSION-ARCH`，其中 ARCH 为 `386`、`amd64`、`arm64`、`armv7` 或 `armv6`。
+- 构建沿用官方 Dockerfile，仅应用上海时区、架构映射、开发版本标记和缓存分层补丁；上游结构变化时会明确失败，避免静默打包错误。缓存保留编译层，Xray、MTG 和规则资源在每次构建时重新下载。
+
 Docker Usage  
 
 - 项目地址 https://github.com/MHSanaei/3x-ui
@@ -129,8 +139,9 @@ docker run -itd \
    --network=host \
    --restart=unless-stopped \
    --name 3x-ui \
-   bigbugcc/3x-ui:latest
+   bigbugcc/3x-ui:dev
 ```
+上述示例跟随自动构建的开发版；使用手动构建的稳定版时，将镜像标签改为 `latest` 或指定正式版本标签。
 #### Default Setting
 - **Port:** 2053
 - **TimeZone:** Asia/Shanghai

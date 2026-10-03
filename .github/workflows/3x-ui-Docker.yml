@@ -2,63 +2,110 @@ name: 3x-ui-Docker
 on:
   repository_dispatch:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Official source: main, a branch/commit, or a stable vX.Y.Z tag'
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: write
+
+# Never interrupt a push/export/release halfway through.
+concurrency:
+  group: 3x-ui-docker-publish
+  cancel-in-progress: false
 
 env:
   repo_url: https://github.com/MHSanaei/3x-ui.git
-  docker-repo: 'bigbugcc/3x-ui'
-  platforms: 'linux/386,linux/amd64,linux/arm64'
-  configure-sh: './bin/3x-ui/configure.sh'
+  docker-repo: bigbugcc/3x-ui
+  platforms: linux/386,linux/amd64,linux/arm64/v8,linux/arm/v7,linux/arm/v6
 
-jobs:  
-  build:  
+jobs:
+  build:
     runs-on: ubuntu-latest
-        
-    steps:  
-      - name: 'Checking'
+    timeout-minutes: 90
+    steps:
+      - name: Checkout ActionBot
         uses: actions/checkout@v7.0.1
 
-      - name: Init Env
-        run: |
-          sudo timedatectl set-timezone Asia/Shanghai
-          sudo apt-get install tree
-          sudo mkdir -p ./workdir
-          sudo chown $USER:$GROUPS ./workdir
-          echo "======== 🚀Directory structure ========"
-          tree -L 3
+      - name: Checkout official source
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: MHSanaei/3x-ui
+          ref: ${{ inputs.source_ref || 'main' }}
+          path: workdir
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
 
-      - name: Clone Repo
+      - name: Resolve source identity
+        id: source
+        working-directory: workdir
+        env:
+          SOURCE_REF: ${{ inputs.source_ref || 'main' }}
         run: |
-          git clone ${{ env.repo_url }} ./workdir
-      
-      - name: Repo Tag
-        working-directory: ./workdir
-        id: tag
-        run: |
-          echo "repo_tag=$(git describe --tags `git rev-list --tags --max-count=1`)" >> $GITHUB_OUTPUT
-          echo "release_tag=$(date +"%Y.%m.%d-%H%M%S")" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          short=${sha:0:12}
+          stable=false
+          version="dev-${short}"
+          # Only an explicitly selected stable tag can publish latest/version tags.
+          if [[ "$SOURCE_REF" =~ ^(refs/tags/)?(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            version=${BASH_REMATCH[2]}
+            test "$(git rev-parse "refs/tags/$version^{commit}")" = "$sha"
+            stable=true
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          echo "source_date=$(date -u -d "$(git show -s --format=%cI HEAD)" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "release_tag=3x-ui-${version}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
-      - name: Modify Dockerfile
-        run: |
-          [ -e ${{ env.configure-sh }} ] && mv ${{ env.configure-sh }} ./workdir/
-          cd ./workdir/
-          tree -L 2
-          chmod +x ./configure.sh && ./configure.sh
-          echo "======== 🚀Dockerfile Info ========"
-          cat ./Dockerfile
+      - name: Configure official build
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_DATE: ${{ steps.source.outputs.source_date }}
+          STABLE_BUILD: ${{ steps.source.outputs.stable }}
+        run: bash bin/3x-ui/configure.sh workdir
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.docker-repo }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=sha-${{ steps.source.outputs.short }}
+            type=raw,value=${{ steps.source.outputs.version }}
+            type=raw,value=dev,enable=${{ steps.source.outputs.stable != 'true' }}
+            type=raw,value=latest,enable=${{ steps.source.outputs.stable == 'true' }}
+            type=semver,pattern={{version}},value=${{ steps.source.outputs.version }},enable=${{ steps.source.outputs.stable == 'true' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/MHSanaei/3x-ui
+            org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.source.outputs.version }}
+            org.opencontainers.image.created=${{ steps.source.outputs.created }}
+            org.opencontainers.image.url=https://github.com/MHSanaei/3x-ui/commit/${{ steps.source.outputs.sha }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4.4.0
+        with:
+          platforms: amd64,arm64,arm,386
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
 
-      - name: Login to DockerHub
+      - name: Login to Docker Hub
         uses: docker/login-action@v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build docker
+      - name: Build and push staging image
         id: docker
         uses: docker/build-push-action@v7.4.0
         with:
@@ -66,34 +113,120 @@ jobs:
           push: true
           pull: true
           platforms: ${{ env.platforms }}
-          tags: | 
-            ${{ env.docker-repo }}:latest
-            ${{ env.docker-repo }}:${{ steps.tag.outputs.repo_tag }}
-      
-      - name: Image digest
-        run: echo ${{ steps.docker.outputs.digest }}
+          tags: ${{ env.docker-repo }}:build-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=3x-ui-docker
+          cache-to: type=gha,scope=3x-ui-docker,mode=max
+          # Refresh latest assets without invalidating compiler/frontend layers.
+          no-cache-filters: resources
 
-      - name: Docker pull to save
+      - name: Export and verify offline images
+        env:
+          IMAGE_REPO: ${{ env.docker-repo }}
+          IMAGE_DIGEST: ${{ steps.docker.outputs.digest }}
+          IMAGE_VERSION: ${{ steps.source.outputs.version }}
+          BUILD_METADATA: ${{ steps.docker.outputs.metadata }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_REF: ${{ inputs.source_ref || 'main' }}
+          SOURCE_DATE: ${{ steps.source.outputs.source_date }}
+          BUILD_DATE: ${{ steps.source.outputs.created }}
         run: |
-          docker pull --platform linux/amd64 ${{ env.docker-repo }}:latest
-          docker save -o 3x-ui-amd64-${{ steps.tag.outputs.repo_tag }}.tar ${{ env.docker-repo }}:latest
+          set -euo pipefail
+          mkdir -p artifacts
+          printf '%s\n' "$BUILD_METADATA" > artifacts/build-metadata.json
+          jq -n --arg repository "$IMAGE_REPO" --arg digest "$IMAGE_DIGEST" \
+            --arg source_sha "$SOURCE_SHA" --arg source_ref "$SOURCE_REF" \
+            --arg version "$IMAGE_VERSION" --arg source_date "$SOURCE_DATE" --arg created "$BUILD_DATE" \
+            '{repository:$repository,digest:$digest,source_sha:$source_sha,source_ref:$source_ref,version:$version,source_date:$source_date,created:$created}' \
+            > artifacts/source.json
+          docker buildx imagetools inspect --raw "${IMAGE_REPO}@${IMAGE_DIGEST}" > artifacts/manifest.json
+          for target in 386 amd64 arm64 armv7 armv6; do
+            arch=$target
+            variant=''
+            binary_arch=$target
+            case "$target" in
+              arm64) variant=v8 ;;
+              armv7) arch=arm; variant=v7; binary_arch=arm32 ;;
+              armv6) arch=arm; variant=v6; binary_arch=arm32 ;;
+            esac
+            platform="linux/$arch${variant:+/$variant}"
+            # Resolve a single platform manifest; exclude SBOM/provenance manifests.
+            child_digest=$(jq -er --arg arch "$arch" --arg variant "$variant" '
+              [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch
+                and (($variant == "") or (.platform.variant == $variant)
+                  or ($arch == "arm64" and (.platform.variant // "") == ""))) | .digest]
+              | if length == 1 then .[0] else error("Expected one platform manifest") end
+              ' artifacts/manifest.json)
+            image="${IMAGE_REPO}@${child_digest}"
+            docker pull --platform "$platform" "$image"
+            local_tag="${IMAGE_REPO}:${IMAGE_VERSION}-${target}"
+            docker tag "$image" "$local_tag"
+            test "$(docker image inspect --format '{{.Architecture}}' "$local_tag")" = "$arch"
+            cid=$(docker create --platform "$platform" --entrypoint /bin/sh "$local_tag")
+            docker cp "$cid:/app/x-ui" "artifacts/x-ui-$target"
+            docker cp "$cid:/app/bin/xray-linux-$binary_arch" "artifacts/xray-$target"
+            if docker cp "$cid:/app/bin/mtg-linux-$binary_arch" "artifacts/mtg-$target"; then
+              file "artifacts/mtg-$target"
+            elif grep -q 'mtg-linux-' workdir/DockerInit.sh; then
+              docker rm "$cid"
+              exit 1
+            fi
+            docker rm "$cid"
+            file "artifacts/xray-$target"
+            case "$arch" in
+              386) machine='Intel 80386' ;;
+              amd64) machine='Advanced Micro Devices X86-64' ;;
+              arm64) machine='AArch64' ;;
+              arm) machine='ARM' ;;
+            esac
+            for binary in "artifacts/x-ui-$target" "artifacts/xray-$target" "artifacts/mtg-$target"; do
+              if [ -f "$binary" ]; then
+                readelf -h "$binary" | grep -F "$machine"
+                rm "$binary"
+              fi
+            done
+            docker save "$local_tag" | gzip > "artifacts/3x-ui-${target}-${IMAGE_VERSION}.tar.gz"
+            docker image rm "$local_tag" "$image"
+          done
+          (cd artifacts && sha256sum *.tar.gz *.json > SHA256SUMS)
 
-      - name: Create Release
-        id: release
+      - name: Publish verified image tags
+        env:
+          IMAGE_REPO: ${{ env.docker-repo }}
+          IMAGE_DIGEST: ${{ steps.docker.outputs.digest }}
+          PUBLISH_TAGS: ${{ steps.meta.outputs.tags }}
+        run: bash bin/3x-ui/publish.sh artifacts
+
+      - name: Create release
         uses: softprops/action-gh-release@v3.0.3
-        if: success() && !cancelled()
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: ${{ github.workflow }} - ${{ steps.tag.outputs.repo_tag }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          prerelease: false
-          body: | 
-            Release Note:
-            - ![](https://img.shields.io/docker/pulls/bigbugcc/3x-ui.svg?style=flat-square)
-            - [ DockerHub🐬 ](https://hub.docker.com/r/${{ env.docker-repo }})
-            - 🎯Use: `docker pull bigbugcc/3x-ui:latest`
-            - 👇Or download the Docker image and import it manually
-          files: | 
-            ${{ steps.docker.outputs.metadata }}
-            3x-ui-amd64-${{ steps.tag.outputs.repo_tag }}.tar
-            3x-ui-arm64-${{ steps.tag.outputs.repo_tag }}.tar
+          tag_name: ${{ steps.source.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: 3x-ui Docker - ${{ steps.source.outputs.version }}
+          prerelease: ${{ steps.source.outputs.stable != 'true' }}
+          make_latest: ${{ steps.source.outputs.stable == 'true' && 'true' || 'false' }}
+          fail_on_unmatched_files: true
+          body: |
+            Source: https://github.com/MHSanaei/3x-ui/commit/${{ steps.source.outputs.sha }}
+            Source ref: `${{ inputs.source_ref || 'main' }}`
+            Source commit time: `${{ steps.source.outputs.source_date }}`
+            Workflow build time: `${{ steps.source.outputs.created }}`
+            Image: `${{ env.docker-repo }}:${{ steps.source.outputs.version }}`
+            Digest: `${{ steps.docker.outputs.digest }}`
+            Platforms: `${{ env.platforms }}`
+
+            Offline import: `gzip -dc 3x-ui-ARCH-${{ steps.source.outputs.version }}.tar.gz | docker load`
+            Offline image tag: `${{ env.docker-repo }}:${{ steps.source.outputs.version }}-ARCH`
+            Verify downloads with `sha256sum -c SHA256SUMS`.
+          files: |
+            artifacts/3x-ui-386-${{ steps.source.outputs.version }}.tar.gz
+            artifacts/3x-ui-amd64-${{ steps.source.outputs.version }}.tar.gz
+            artifacts/3x-ui-arm64-${{ steps.source.outputs.version }}.tar.gz
+            artifacts/3x-ui-armv7-${{ steps.source.outputs.version }}.tar.gz
+            artifacts/3x-ui-armv6-${{ steps.source.outputs.version }}.tar.gz
+            artifacts/build-metadata.json
+            artifacts/source.json
+            artifacts/manifest.json
+            artifacts/SHA256SUMS
