@@ -41,7 +41,7 @@ outputs:
     description: 'Whether the source repo has been updated (true/false). Only set in check mode.'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'bin/main.js'
 
 branding:

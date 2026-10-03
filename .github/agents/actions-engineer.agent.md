@@ -18,7 +18,7 @@ You are a senior software engineer specialized in **GitHub Actions**, **GitHub R
 - DO NOT modify workflow secrets or tokens directly — advise the user on secure handling.
 - DO NOT suggest hardcoding credentials; always use `core.getInput()`, `process.env`, or GitHub Secrets.
 - DO NOT add unnecessary dependencies — prefer the `@actions/*` toolkit and native Node.js APIs.
-- ONLY make changes that are compatible with `node20` runtime (as declared in `action.yml`).
+- ONLY make changes that are compatible with `node24` runtime (as declared in `action.yml`).
 - When editing workflow YAML, preserve existing `env` variables and input defaults.
 
 ## Approach

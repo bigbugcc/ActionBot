@@ -12,12 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 'Checking'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: 'Setting Python'
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.x'
+          check-latest: true
 
       - name: 'Getting WARP+ Traffic'
         env:
