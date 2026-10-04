@@ -22,6 +22,8 @@ env:
   repo_release: latest
   docker-repo: bigbugcc/3x-ui
   platforms: linux/386,linux/amd64,linux/arm64/v8,linux/arm/v7,linux/arm/v6
+  # Count individual vX.Y.Z/X.Y.Z tags; latest is retained separately.
+  keep_version_tags: '10'
 
 jobs:
   build:
@@ -231,3 +233,18 @@ jobs:
             artifacts/source.json
             artifacts/manifest.json
             artifacts/SHA256SUMS
+
+      # Only clean up after verified tag publication AND successful Release upload.
+      - name: Prune old Docker Hub tags
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          IMAGE_REPO: ${{ env.docker-repo }}
+          KEEP_TAGS: ${{ env.keep_version_tags }}
+          IMAGE_DIGEST: ${{ steps.docker.outputs.digest }}
+          PUBLISH_TAGS: ${{ steps.meta.outputs.tags }}
+          STAGING_TAG: build-${{ github.run_id }}-${{ github.run_attempt }}
+          BUILD_DATE: ${{ steps.source.outputs.created }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: python3 bin/3x-ui/cleanup_tags.py --apply

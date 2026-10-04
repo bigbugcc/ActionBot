@@ -125,6 +125,8 @@ env:
 - 自动触发通过 `repo_release: latest` 跟踪官方正式发布及其 tag 的源码 SHA；普通 `main` 提交不再触发 3x-ui 编译。自动触发会将检测到的版本传入 `version_tag`。
 - 构建先将官方 tag（包括 annotated tag）解析为固定 commit，再检出并核对 SHA。镜像 labels、Release 说明和 `source.json` 记录实际官方版本和源码 SHA；面板沿用官方版本信息。
 - 构建首先推送唯一临时标签 `build-<run_id>-<attempt>`；五个平台校验和离线包导出成功后，才将同一镜像 digest 发布到对外标签，并核对发布后的 digest。校验失败不会更新 `latest` 或版本标签；Release 上传失败时已发布镜像仍然有效。
+- 镜像与 Release 发布成功后，按 Docker Hub 标签推送时间保留最近 **10 个版本标签**（`vX.Y.Z` 和 `X.Y.Z` 分别计数，通常约 5 个版本），`latest` 额外保留；重编历史版本按本次推送时间计入。清理同时删除本次成功构建的临时标签和本次构建开始前遗留的 `build-*` 标签，其他标签（如 `dev`、`sha-*`）保留。删除按标签名执行，不直接删除共享 digest；GitHub Release 和离线包不受影响。
+- 清理复用 `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`，其中 token 必须有 **Read, Write, Delete** 权限（[Docker PAT 文档](https://docs.docker.com/security/access-tokens/personal-access-tokens/)）。API 失败或标签列表不完整时停止清理并发出警告，已发布的镜像与 Release 仍有效；可能已完成部分删除，下次成功发布会再次清理。可修改 workflow 的 `keep_version_tags` 调整数量，或执行 `python3 bin/3x-ui/cleanup_tags.py --repo bigbugcc/3x-ui --keep 10` 只读预览版本标签清理计划。
 - 源码 commit 时间和实际 workflow 运行时间分别记录于镜像 labels、`source.json` 和 Release 说明。
 - 支持 `linux/386`、`linux/amd64`、`linux/arm64/v8`、`linux/arm/v7`、`linux/arm/v6`。各平台都提供 `.tar.gz` 离线镜像，下载后先执行 `sha256sum -c SHA256SUMS`，再用 `gzip -dc 3x-ui-ARCH-VERSION.tar.gz | docker load` 导入；导入后的标签为 `bigbugcc/3x-ui:VERSION-ARCH`，其中 ARCH 为 `386`、`amd64`、`arm64`、`armv7` 或 `armv6`。
 - 构建沿用所选官方 tag 的 Dockerfile，应用上海时区、架构映射和缓存分层补丁；上游结构变化时会明确失败，避免静默打包错误。缓存保留编译层，Xray、MTG 和规则资源在每次构建时重新下载。
