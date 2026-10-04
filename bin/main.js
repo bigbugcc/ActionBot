@@ -14,7 +14,7 @@ let Repo = "";
 function getRepoUrlInfo(repo_url) {
     const splitRepository = repo_url.replace('.git', '').split('/');
     if (splitRepository.length < 5) {
-        core.setFailed(`this repo: ${repo_url} Invalid repository.`);
+        throw new Error(`Invalid repository URL: ${repo_url}`);
     }
     return {
         owner: splitRepository[3],
@@ -31,6 +31,7 @@ async function fetchLatestCommitId(repo_url, branch) {
         const params = {
             owner: repo_owner,
             repo: repo_name,
+            per_page: 1,
             headers: header
         };
         if (branch) params.sha = branch;
@@ -91,10 +92,6 @@ async function fetchLatestReleaseId(repo_url) {
 }
 
 async function triggerWorkflow(element) {
-    if (element.update_key) {
-        updatedKey.add(element.update_key);
-    }
-
     try {
         const response = await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
             owner: Owner,
@@ -104,13 +101,62 @@ async function triggerWorkflow(element) {
             inputs: element.version_tag ? { version_tag: element.version_tag } : {},
             headers: header
         });
-        if (response.status === 204) {
-            console.log(`🚀 The ${element.name} workflow was activated successfully and is running!`);
-        } else {
-            console.log(`⚠️ The ${element.name} workflow failed to activate, please check the workflow configuration!`);
+        if (response.status !== 204) {
+            throw new Error(`Unexpected dispatch status: ${response.status}`);
         }
+        if (element.update_key) updatedKey.add(element.update_key);
+        console.log(`🚀 The ${element.name} workflow was activated successfully and is running!`);
     } catch (error) {
-        console.log(`❌ The ${element.name} workflow error: ${error}`);
+        element.status = 0;
+        core.warning(`❌ The ${element.name} workflow error: ${error}`);
+    }
+}
+
+async function readCacheEntries() {
+    const entries = [];
+    for (let page = 1; ; page++) {
+        const response = await octokit.request('GET /repos/{owner}/{repo}/actions/caches', {
+            owner: Owner, repo: Repo, per_page: 100, page, headers: header
+        });
+        const batch = response.data.actions_caches;
+        entries.push(...batch);
+        if (batch.length < 100) return entries;
+    }
+}
+
+async function saveUpdateKey(updateKey, failOnError = false) {
+    try {
+        const dir = 'repo_keys/';
+        const cachePath = dir + updateKey;
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(cachePath, updateKey, 'utf8');
+        const cacheId = await cache.saveCache([cachePath], updateKey);
+        if (!Number.isInteger(cacheId) || cacheId <= 0) {
+            core.warning(`⚠️ Cache not saved: ${cacheId}, key: ${updateKey}`);
+            return false;
+        }
+        console.log(`🦄 Cache saved: ${cacheId}, key: ${updateKey}`);
+        return true;
+    } catch (error) {
+        const message = `Failed to save cache ${updateKey}: ${error.message}`;
+        if (failOnError) core.setFailed(message);
+        else core.warning(message);
+        return false;
+    }
+}
+
+async function deleteOldCacheEntries(entries, updateKey) {
+    const prefix = updateKey.split('@')[0] + '@';
+    for (const entry of entries) {
+        if (!entry.key.startsWith(prefix) || entry.key === updateKey) continue;
+        try {
+            await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
+                owner: Owner, repo: Repo, cache_id: entry.id, headers: header
+            });
+            console.log(`🚀 Deleted old cache: ${entry.key}`);
+        } catch (error) {
+            core.warning(`Failed to delete cache ${entry.key}: ${error.message}`);
+        }
     }
 }
 
@@ -132,18 +178,13 @@ async function checkSingleRepo(repo_url, branch) {
     }
 
     const updateKey = result.key;
-    const repoPrefix = updateKey.split('@')[0];
     console.log(`🔑 Current key: ${updateKey}`);
 
     //get existing caches
-    const caches = await octokit.request('GET /repos/{owner}/{repo}/actions/caches', {
-        owner: Owner,
-        repo: Repo,
-        headers: header
-    });
+    const caches = await readCacheEntries();
 
     //check if the key already exists in cache
-    const existingCache = caches.data.actions_caches.find(e => e.key === updateKey);
+    const existingCache = caches.find(entry => entry.key === updateKey);
     if (existingCache) {
         console.log(`☕ Source has not been updated, commit ID matches cache. Cancelling workflow.`);
         core.setOutput('updated', 'false');
@@ -168,39 +209,8 @@ async function checkSingleRepo(repo_url, branch) {
     console.log(`✅ Source is updated! New commit detected.`);
     core.setOutput('updated', 'true');
 
-    //clear old caches for this repo
-    const oldCaches = caches.data.actions_caches.filter(e => e.key.includes(repoPrefix));
-    for (const e of oldCaches) {
-        try {
-            const response = await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
-                owner: Owner,
-                repo: Repo,
-                headers: header,
-                cache_id: e.id
-            });
-            if (response.status === 204) {
-                console.log(`🚀 Delete old cache: ${e.key} completed!`);
-            }
-        } catch (error) {
-            console.log(`❌ Delete cache: ${e.key} failed: ${error}`);
-        }
-    }
-
-    //save new cache key
-    try {
-        const dir = "repo_keys/";
-        const cachePath = dir + updateKey;
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(cachePath, Buffer.from(updateKey, 'utf-8'), 'binary');
-
-        const cacheId = await cache.saveCache([cachePath], updateKey);
-        if (cacheId <= 0) {
-            core.warning(`⚠️ Warning: Cache not saved: ${cacheId} Cache key: ${updateKey}`);
-        } else {
-            console.log(`🦄 Cache saved: ${cacheId} Cache key: ${updateKey}`);
-        }
-    } catch (error) {
-        core.warning(`⚠️ Failed to save cache: ${error}`);
+    if (await saveUpdateKey(updateKey)) {
+        await deleteOldCacheEntries(caches, updateKey);
     }
 }
 
@@ -263,15 +273,16 @@ async function main() {
             //exclude the original(ActionBot) repo workflow and trigger workflow
             const matched = workflowInfo.find(element => element.name === wfInfo.name);
             if (wfInfo.name !== workflow && matched) {
-                const repo_url = wfInfo.env.repo_url || wfInfo.env.REPO_URL;
-                const force_active = wfInfo.env.force_active || 0;
+                const env = wfInfo.env || {};
+                const repo_url = env.repo_url || env.REPO_URL;
+                const force_active = Number(env.force_active || 0);
                 console.log(`👀 repo_url: ${repo_url}, force_active: ${force_active}`);
 
-                if (force_active === 1 || repo_url) {
+                if (force_active !== 2 && (force_active === 1 || repo_url)) {
                     matched.force_active = force_active;
                     if (repo_url) {
                         matched.repo_url = repo_url;
-                        matched.repo_release = wfInfo.env.repo_release;
+                        matched.repo_release = env.repo_release;
                     }
                     continue;
                 } else {
@@ -287,89 +298,27 @@ async function main() {
         }
     }
 
-    if (workflowInfo.length < 1) { core.setFailed('❌ Not Workflow'); return; }
+    if (workflowInfo.length < 1) {
+        console.log('No workflows configured for automatic triggering.');
+        return;
+    }
     await getCommitIds();
 
-    //get cache key
-    const caches = await octokit.request('GET /repos/{owner}/{repo}/actions/caches', {
-        owner: Owner,
-        repo: Repo,
-        headers: header
-    });
-
-    if (caches.data.actions_caches.length > 0) {
-        const keys = caches.data.actions_caches;
-        //check repo updated
-        for (const element of workflowInfo) {
-            //exclude exception repo workflow
-            if (element.status === 0) {
-                console.log(`⚠️ repo ：${element.repo_url} Source is invalid, Already skipped!`);
-                continue;
-            }
-            //force active workflow
-            if (element.force_active === 1) {
-                await triggerWorkflow(element);
-                continue;
-            }
-
-            //find cache key
-            const cacheKey = keys.find(e => e.key === element.update_key);
-            if (cacheKey) {
-                console.log(`☕ repo ：${element.name} Source do not update!`);
-            } else {
-                console.log(`✅ repo ：${element.name} Source is updated!`);
-                await triggerWorkflow(element);
-            }
-        }
-    } else {
-        //all Updates
-        for (const element of workflowInfo) {
-            if (element.status === 0) continue;
+    const caches = await readCacheEntries();
+    const cachedKeys = new Set(caches.map(entry => entry.key));
+    for (const element of workflowInfo) {
+        if (element.status === 0) continue;
+        if (element.force_active === 1 || !cachedKeys.has(element.update_key)) {
             await triggerWorkflow(element);
-        }
-        console.log('🦄 Not Found Cache! will trigger all workflows!');
-    }
-
-    //clear cache
-    for (const element of updatedKey) {
-        if (!element) continue;
-        const invalidKeys = caches.data.actions_caches.filter(e => e.key.includes(element.split('@')[0]));
-        for (const e of invalidKeys) {
-            try {
-                const response = await octokit.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
-                    owner: Owner,
-                    repo: Repo,
-                    headers: header,
-                    cache_id: e.id
-                });
-                if (response.status === 204) {
-                    console.log(`🚀 Delete Cache: ${e.key} completed!`);
-                } else {
-                    console.log(`⚠️ Exception when deleting Key: ${response} `);
-                }
-            } catch (error) {
-                console.log(`❌ Delete Key: ${e.key} Failed！ workflow error: ${error}`);
-            }
+        } else {
+            console.log(`☕ Source has not changed: ${element.name}`);
         }
     }
 
-    //action write caches
+    // Keep previous update markers until the replacement has been saved.
     for (const key of updatedKey) {
-        if (!key) continue;
-        try {
-            const dir = "repo_keys/";
-            const cachePath = dir + key;
-            fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(cachePath, Buffer.from(key, 'utf-8'), 'binary');
-
-            const cacheId = await cache.saveCache([cachePath], key);
-            if (cacheId <= 0) {
-                core.warning(`⚠️⚠️⚠️ Warning: Cache not saved: ${cacheId} Cache key: ${key}`);
-            } else {
-                console.log(`🦄 Cache saved: ${cacheId} Cache key: ${key}`);
-            }
-        } catch (error) {
-            core.setFailed(error);
+        if (await saveUpdateKey(key, true)) {
+            await deleteOldCacheEntries(caches, key);
         }
     }
 
@@ -382,4 +331,7 @@ async function main() {
         core.setFailed('❌ Some workflows failed, please check!');
     }
 }
-main();
+module.exports = { main };
+if (require.main === module) {
+    main().catch(error => core.setFailed(error.message));
+}
