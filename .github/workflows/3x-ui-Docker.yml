@@ -188,7 +188,8 @@ jobs:
               fi
             done
             docker save "$local_tag" | gzip > "artifacts/3x-ui-${target}-${IMAGE_VERSION}.tar.gz"
-            docker image rm "$local_tag" "$image"
+            # Removing the only tag also removes the digest reference.
+            docker image rm "$local_tag"
           done
           (cd artifacts && sha256sum *.tar.gz *.json > SHA256SUMS)
 
