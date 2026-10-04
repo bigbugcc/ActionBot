@@ -60,8 +60,11 @@ async function getCommitIds() {
     const promises = workflowInfo.map(async (element) => {
         if (!element.repo_url) return;
         try {
-            const result = await fetchLatestCommitId(element.repo_url);
+            const result = element.repo_release === 'latest'
+                ? await fetchLatestReleaseId(element.repo_url)
+                : await fetchLatestCommitId(element.repo_url);
             element.update_key = result.key;
+            element.version_tag = result.versionTag;
         } catch (error) {
             element.status = 0;
             core.warning(`⚠️ ${element.repo_url} possible problems, log: ${error}`);
@@ -69,6 +72,22 @@ async function getCommitIds() {
     });
 
     await Promise.all(promises);
+}
+
+async function fetchLatestReleaseId(repo_url) {
+    const repo = getRepoUrlInfo(repo_url);
+    const response = await octokit.request('GET /repos/{owner}/{repo}/releases/latest', {
+        owner: repo.owner,
+        repo: repo.name,
+        headers: header
+    });
+    const release = response.data;
+    const tag = release.tag_name;
+    if (release.draft || release.prerelease || !/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(tag)) {
+        throw new Error('Expected an official stable vX.Y.Z release');
+    }
+    const source = await fetchLatestCommitId(repo_url, `refs/tags/${tag}`);
+    return { key: `${repo.owner}:${repo.name}@release-${tag}-${source.commitId}`, versionTag: tag };
 }
 
 async function triggerWorkflow(element) {
@@ -82,7 +101,7 @@ async function triggerWorkflow(element) {
             repo: Repo,
             workflow_id: element.id,
             ref: 'main',
-            inputs: {},
+            inputs: element.version_tag ? { version_tag: element.version_tag } : {},
             headers: header
         });
         if (response.status === 204) {
@@ -252,6 +271,7 @@ async function main() {
                     matched.force_active = force_active;
                     if (repo_url) {
                         matched.repo_url = repo_url;
+                        matched.repo_release = wfInfo.env.repo_release;
                     }
                     continue;
                 } else {
@@ -304,6 +324,7 @@ async function main() {
     } else {
         //all Updates
         for (const element of workflowInfo) {
+            if (element.status === 0) continue;
             await triggerWorkflow(element);
         }
         console.log('🦄 Not Found Cache! will trigger all workflows!');

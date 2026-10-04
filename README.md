@@ -120,13 +120,14 @@ env:
 ## 3x-ui-Docker
 ### 构建与版本标签
 
-- 自动触发默认构建官方 `main`，发布 `dev`、`dev-<源码SHA前12位>` 和 `sha-<源码SHA前12位>`；开发构建不会覆盖 `latest` 或正式版本标签。
-- 手动执行 workflow 时，`source_ref` 可填写官方分支、commit 或 tag。选择正式 `vX.Y.Z` tag 才会发布 `latest`、`vX.Y.Z` 和 `X.Y.Z`；其他 ref 按开发构建处理。
-- 镜像 labels、Release 说明和 `source.json` 记录官方源码 SHA。开发版面板也会显示对应 commit；开发构建的 Release 标记为预发布。
-- 构建首先推送唯一临时标签 `build-<run_id>-<attempt>`；五个平台校验和离线包导出成功后，才将同一镜像 digest 发布到对外标签，并核对发布后的 digest。校验失败不会更新 `dev`、`latest` 或版本标签；Release 上传失败时已发布镜像仍然有效。
-- 开发版二进制的 `buildDate` 使用源码 commit 的 UTC 时间，同一源码 SHA 重跑可复用编译缓存；实际 workflow 运行时间另存于镜像 labels、`source.json` 和 Release 说明。
+- 手动执行 workflow 时，`version_tag` 可填写官方正式版本 tag（`vX.Y.Z` 或 `X.Y.Z`）；留空或填写 `latest` 时，通过官方 latest Release 选择最新正式版，不构建 `main`。输入不存在的 tag、分支或 commit 会在构建前失败。
+- 镜像标签跟随官方版本，例如 `bigbugcc/3x-ui:v3.9.0` 和 `bigbugcc/3x-ui:3.9.0`。所选版本为官方最新正式版时同时发布 `latest`；手动编译历史版本不会覆盖 `latest`，也不会将该次 Release 设为最新。
+- 自动触发通过 `repo_release: latest` 跟踪官方正式发布及其 tag 的源码 SHA；普通 `main` 提交不再触发 3x-ui 编译。自动触发会将检测到的版本传入 `version_tag`。
+- 构建先将官方 tag（包括 annotated tag）解析为固定 commit，再检出并核对 SHA。镜像 labels、Release 说明和 `source.json` 记录实际官方版本和源码 SHA；面板沿用官方版本信息。
+- 构建首先推送唯一临时标签 `build-<run_id>-<attempt>`；五个平台校验和离线包导出成功后，才将同一镜像 digest 发布到对外标签，并核对发布后的 digest。校验失败不会更新 `latest` 或版本标签；Release 上传失败时已发布镜像仍然有效。
+- 源码 commit 时间和实际 workflow 运行时间分别记录于镜像 labels、`source.json` 和 Release 说明。
 - 支持 `linux/386`、`linux/amd64`、`linux/arm64/v8`、`linux/arm/v7`、`linux/arm/v6`。各平台都提供 `.tar.gz` 离线镜像，下载后先执行 `sha256sum -c SHA256SUMS`，再用 `gzip -dc 3x-ui-ARCH-VERSION.tar.gz | docker load` 导入；导入后的标签为 `bigbugcc/3x-ui:VERSION-ARCH`，其中 ARCH 为 `386`、`amd64`、`arm64`、`armv7` 或 `armv6`。
-- 构建沿用官方 Dockerfile，仅应用上海时区、架构映射、开发版本标记和缓存分层补丁；上游结构变化时会明确失败，避免静默打包错误。缓存保留编译层，Xray、MTG 和规则资源在每次构建时重新下载。
+- 构建沿用所选官方 tag 的 Dockerfile，应用上海时区、架构映射和缓存分层补丁；上游结构变化时会明确失败，避免静默打包错误。缓存保留编译层，Xray、MTG 和规则资源在每次构建时重新下载。
 
 Docker Usage  
 
@@ -139,9 +140,9 @@ docker run -itd \
    --network=host \
    --restart=unless-stopped \
    --name 3x-ui \
-   bigbugcc/3x-ui:dev
+   bigbugcc/3x-ui:latest
 ```
-上述示例跟随自动构建的开发版；使用手动构建的稳定版时，将镜像标签改为 `latest` 或指定正式版本标签。
+上述示例跟随官方最新正式版；固定版本时，将镜像标签改为所需的官方 tag，例如 `v3.9.0`。
 #### Default Setting
 - **Port:** 2053
 - **TimeZone:** Asia/Shanghai

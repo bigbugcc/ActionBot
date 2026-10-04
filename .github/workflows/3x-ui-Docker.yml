@@ -3,10 +3,10 @@ on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
-      source_ref:
-        description: 'Official source: main, a branch/commit, or a stable vX.Y.Z tag'
+      version_tag:
+        description: 'Official version tag (vX.Y.Z or X.Y.Z); leave blank for latest release'
         required: false
-        default: main
+        default: ''
         type: string
 
 permissions:
@@ -19,6 +19,7 @@ concurrency:
 
 env:
   repo_url: https://github.com/MHSanaei/3x-ui.git
+  repo_release: latest
   docker-repo: bigbugcc/3x-ui
   platforms: linux/386,linux/amd64,linux/arm64/v8,linux/arm/v7,linux/arm/v6
 
@@ -30,11 +31,18 @@ jobs:
       - name: Checkout ActionBot
         uses: actions/checkout@v7.0.1
 
+      - name: Resolve official version
+        id: version
+        env:
+          VERSION_TAG: ${{ inputs.version_tag || github.event.client_payload.version_tag || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 bin/3x-ui/resolve_version.py
+
       - name: Checkout official source
         uses: actions/checkout@v7.0.1
         with:
           repository: MHSanaei/3x-ui
-          ref: ${{ inputs.source_ref || 'main' }}
+          ref: ${{ steps.version.outputs.sha }}
           path: workdir
           fetch-depth: 1
           submodules: recursive
@@ -44,23 +52,18 @@ jobs:
         id: source
         working-directory: workdir
         env:
-          SOURCE_REF: ${{ inputs.source_ref || 'main' }}
+          SOURCE_VERSION: ${{ steps.version.outputs.tag }}
+          EXPECTED_SHA: ${{ steps.version.outputs.sha }}
         run: |
           set -euo pipefail
           sha=$(git rev-parse HEAD)
+          test "$sha" = "$EXPECTED_SHA"
           short=${sha:0:12}
-          stable=false
-          version="dev-${short}"
-          # Only an explicitly selected stable tag can publish latest/version tags.
-          if [[ "$SOURCE_REF" =~ ^(refs/tags/)?(v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            version=${BASH_REMATCH[2]}
-            test "$(git rev-parse "refs/tags/$version^{commit}")" = "$sha"
-            stable=true
-          fi
+          version=$SOURCE_VERSION
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "short=$short" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          echo "stable=true" >> "$GITHUB_OUTPUT"
           echo "source_date=$(date -u -d "$(git show -s --format=%cI HEAD)" +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "release_tag=3x-ui-${version}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
@@ -79,11 +82,9 @@ jobs:
           images: ${{ env.docker-repo }}
           flavor: latest=false
           tags: |
-            type=raw,value=sha-${{ steps.source.outputs.short }}
             type=raw,value=${{ steps.source.outputs.version }}
-            type=raw,value=dev,enable=${{ steps.source.outputs.stable != 'true' }}
-            type=raw,value=latest,enable=${{ steps.source.outputs.stable == 'true' }}
-            type=semver,pattern={{version}},value=${{ steps.source.outputs.version }},enable=${{ steps.source.outputs.stable == 'true' }}
+            type=semver,pattern={{version}},value=${{ steps.source.outputs.version }}
+            type=raw,value=latest,enable=${{ steps.version.outputs.latest == 'true' }}
           labels: |
             org.opencontainers.image.source=https://github.com/MHSanaei/3x-ui
             org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
@@ -129,7 +130,7 @@ jobs:
           IMAGE_VERSION: ${{ steps.source.outputs.version }}
           BUILD_METADATA: ${{ steps.docker.outputs.metadata }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
-          SOURCE_REF: ${{ inputs.source_ref || 'main' }}
+          SOURCE_REF: ${{ steps.version.outputs.tag }}
           SOURCE_DATE: ${{ steps.source.outputs.source_date }}
           BUILD_DATE: ${{ steps.source.outputs.created }}
         run: |
@@ -206,12 +207,12 @@ jobs:
           tag_name: ${{ steps.source.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: 3x-ui Docker - ${{ steps.source.outputs.version }}
-          prerelease: ${{ steps.source.outputs.stable != 'true' }}
-          make_latest: ${{ steps.source.outputs.stable == 'true' && 'true' || 'false' }}
+          prerelease: false
+          make_latest: ${{ steps.version.outputs.latest == 'true' && 'true' || 'false' }}
           fail_on_unmatched_files: true
           body: |
             Source: https://github.com/MHSanaei/3x-ui/commit/${{ steps.source.outputs.sha }}
-            Source ref: `${{ inputs.source_ref || 'main' }}`
+            Source tag: `${{ steps.version.outputs.tag }}`
             Source commit time: `${{ steps.source.outputs.source_date }}`
             Workflow build time: `${{ steps.source.outputs.created }}`
             Image: `${{ env.docker-repo }}:${{ steps.source.outputs.version }}`

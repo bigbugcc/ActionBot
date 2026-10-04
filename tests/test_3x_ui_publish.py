@@ -49,7 +49,7 @@ exec bash "$TEST_SCRIPT" "$TEST_ARTIFACTS"
 
 @unittest.skipUnless(BASH and Path(BASH).exists(), "Bash is required")
 class PublicationTests(unittest.TestCase):
-    def invoke(self, mode="success", corrupt=False, tags="example/3x-ui:dev\nexample/3x-ui:sha-test"):
+    def invoke(self, mode="success", corrupt=False, tags="example/3x-ui:v3.9.0\nexample/3x-ui:3.9.0\nexample/3x-ui:latest"):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             manifest = json.dumps({"schemaVersion": 2, "manifests": [
@@ -77,7 +77,13 @@ class PublicationTests(unittest.TestCase):
         result, mutations = self.invoke()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(mutations.splitlines()), 1)
-        self.assertIn("--tag example/3x-ui:dev --tag example/3x-ui:sha-test", mutations)
+        self.assertIn("--tag example/3x-ui:v3.9.0 --tag example/3x-ui:3.9.0 --tag example/3x-ui:latest", mutations)
+
+    def test_historical_version_publishes_without_latest(self):
+        result, mutations = self.invoke(tags="example/3x-ui:v3.8.0\nexample/3x-ui:3.8.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--tag example/3x-ui:v3.8.0 --tag example/3x-ui:3.8.0", mutations)
+        self.assertNotIn(":latest", mutations)
 
     def test_corrupt_export_never_publishes(self):
         result, mutations = self.invoke(corrupt=True)
