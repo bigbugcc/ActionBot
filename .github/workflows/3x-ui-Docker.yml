@@ -67,6 +67,36 @@ jobs:
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "release_tag=3x-ui-${version}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
+      - name: Remove upstream sponsor advertisements
+        id: sponsors
+        continue-on-error: true
+        run: python3 bin/3x-ui/remove_sponsors.py workdir
+
+      - name: Record sponsor removal result
+        id: sponsor_result
+        continue-on-error: true
+        env:
+          SPONSOR_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.status || 'failed' }}
+          SIDEBAR_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.sidebar_status || 'failed' }}
+          PALETTE_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.palette_status || 'failed' }}
+        run: |
+          record_status() {
+            local key=$1 label=$2 status=$3
+            case "$status" in
+              applied|already-applied|skipped) ;;
+              *)
+                status=failed
+                echo "::warning::$label removal failed; normal build continues and upstream ads or menu entries may remain."
+                ;;
+            esac
+            printf '%s=%s\n' "$key" "$status" >> "$GITHUB_OUTPUT"
+            printf '%s: `%s`. Skipped or failed removal may retain upstream ads or menu entries.\n' \
+              "$label" "$status" >> "$GITHUB_STEP_SUMMARY"
+          }
+          record_status status 'Sponsor API' "$SPONSOR_STATUS"
+          record_status sidebar_status 'Sponsors sidebar menu' "$SIDEBAR_STATUS"
+          record_status palette_status 'Sponsors command-palette entry' "$PALETTE_STATUS"
+
       - name: Configure official build
         env:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
@@ -214,6 +244,10 @@ jobs:
           body: |
             Source: https://github.com/MHSanaei/3x-ui/commit/${{ steps.source.outputs.sha }}
             Source tag: `${{ steps.version.outputs.tag }}`
+            Sponsor API patch: `${{ steps.sponsor_result.outputs.status || 'failed' }}`.
+            Sponsors sidebar menu removal: `${{ steps.sponsor_result.outputs.sidebar_status || 'failed' }}`.
+            Sponsors command-palette entry removal: `${{ steps.sponsor_result.outputs.palette_status || 'failed' }}`.
+            Skipped/failed patches may retain upstream advertisements or menu entries.
             Source commit time: `${{ steps.source.outputs.source_date }}`
             Workflow build time: `${{ steps.source.outputs.created }}`
             Image: `${{ env.docker-repo }}:${{ steps.source.outputs.version }}`
