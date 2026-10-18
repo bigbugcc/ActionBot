@@ -81,6 +81,52 @@ const pages = [
 ];
 '''
 
+INDEX_SOURCE = '''func (a *IndexController) initRouter(g *gin.RouterGroup) {
+	g.GET("/", a.index)
+	g.GET("/csrf-token", a.csrfToken)
+	g.GET("/sponsors", a.sponsors)
+	g.GET("/sponsors/logo/:name", a.sponsorLogo)
+	g.POST("/login", middleware.CSRFMiddleware(), a.login)
+}
+func (a *IndexController) sponsors(c *gin.Context) { /* retained handler */ }
+'''
+ROUTES_SOURCE = """const IndexPage = lazy(() => import('@/pages/index/IndexPage'));
+const SponsorsPage = lazy(() => import('@/pages/sponsors/SponsorsPage'));
+const children = [
+      { index: true, element: withSuspense(<IndexPage />) },
+      { path: 'sponsors', element: withSuspense(<SponsorsPage />) },
+];
+"""
+QUERY_SOURCE = """import { useQuery } from '@tanstack/react-query';
+
+import { HttpUtil } from '@/utils';
+import { keys } from '@/api/queryKeys';
+import type { SponsorList } from '@/generated/types';
+
+const EMPTY: SponsorList = { sponsors: [] };
+
+async function fetchSponsors(): Promise<SponsorList> {
+  const msg = await HttpUtil.get<SponsorList>('/sponsors', undefined, { silent: true });
+  if (!msg?.success || !msg.obj) return EMPTY;
+  return { contact: msg.obj.contact, sponsors: msg.obj.sponsors ?? [] };
+}
+
+export function useSponsorsQuery() {
+  const query = useQuery({
+    queryKey: keys.sponsors(),
+    queryFn: fetchSponsors,
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+  });
+  return { data: query.data ?? EMPTY, fetched: query.isFetched };
+}
+"""
+NEW_FILES = (
+    (Path('internal/web/controller/index.go'), INDEX_SOURCE, 'remove_api_routes', 'api_routes_status'),
+    (Path('frontend/src/routes.tsx'), ROUTES_SOURCE, 'remove_page_route', 'page_route_status'),
+    (Path('frontend/src/api/queries/useSponsorsQuery.ts'), QUERY_SOURCE, 'disable_query', 'query_status'),
+)
+
 
 class SponsorRemovalTests(unittest.TestCase):
     def setUp(self):
@@ -94,6 +140,63 @@ class SponsorRemovalTests(unittest.TestCase):
             path = self.root / relative
             path.parent.mkdir(parents=True)
             path.write_bytes(source.encode())
+        for relative, source, _, _ in NEW_FILES:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(source.encode())
+
+    def test_routes_removed_and_query_never_fetches(self):
+        for relative, _, function, _ in NEW_FILES:
+            self.assertEqual(getattr(remover, function)(self.root), 'applied')
+        index = (self.root / NEW_FILES[0][0]).read_text()
+        self.assertNotIn('g.GET("/sponsors', index)
+        self.assertIn('g.GET("/csrf-token", a.csrfToken)', index)
+        self.assertIn('g.POST("/login", middleware.CSRFMiddleware(), a.login)', index)
+        self.assertIn('func (a *IndexController) sponsors', index)
+        routes = (self.root / NEW_FILES[1][0]).read_text()
+        self.assertNotIn('SponsorsPage', routes)
+        self.assertNotIn("path: 'sponsors'", routes)
+        self.assertIn('withSuspense(<IndexPage />)', routes)
+        query = (self.root / NEW_FILES[2][0]).read_text()
+        self.assertNotIn('HttpUtil', query)
+        self.assertNotIn('useQuery', query)
+        self.assertIn('return { data: EMPTY, fetched: true };', query)
+
+    def test_new_patches_repeat_without_writes(self):
+        for relative, _, function, _ in NEW_FILES:
+            apply = getattr(remover, function)
+            apply(self.root)
+            before = (self.root / relative).read_bytes()
+            with patch.object(remover.os, 'replace', side_effect=AssertionError('unexpected write')):
+                self.assertEqual(apply(self.root), 'already-applied')
+            self.assertEqual((self.root / relative).read_bytes(), before)
+
+    def test_new_patches_missing_files_warn_and_do_not_block_other_patches(self):
+        for relative, _, _, key in NEW_FILES:
+            (self.root / relative).unlink()
+            result, output = self.invoke()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(key + '=skipped', output.splitlines())
+            self.assertFalse((self.root / relative).exists())
+            self.assertIn('::warning::', result.stdout)
+
+    def test_new_patches_reject_drift_and_preserve_original_on_write_failure(self):
+        for relative, source, function, key in NEW_FILES:
+            for changed in (source.replace('sponsors', 'partners'), source + source):
+                with self.subTest(path=relative, changed=changed):
+                    path = self.root / relative
+                    path.write_bytes(changed.encode())
+                    result, output = self.invoke()
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(key + '=skipped', output.splitlines())
+                    self.assertEqual(path.read_bytes(), changed.encode())
+            for operation in ('fsync', 'replace'):
+                path.write_bytes(source.encode())
+                with patch.object(remover.os, operation, side_effect=OSError('disk failure')):
+                    with self.assertRaises(OSError):
+                        getattr(remover, function)(self.root)
+                self.assertEqual(path.read_bytes(), source.encode())
+                self.assertFalse(list(path.parent.glob('.*.tmp')))
 
     def menus(self):
         return ((SIDEBAR, SIDEBAR_SOURCE, remover.SIDEBAR_FRAGMENTS),
@@ -109,7 +212,7 @@ class SponsorRemovalTests(unittest.TestCase):
             "        icon: <CrownOutlined />,\n      },\n", "")
         for relative, _, fragments in self.menus():
             with self.subTest(path=relative):
-                self.assertEqual(remover.remove_menu(self.root, relative, fragments), "applied")
+                self.assertEqual(remover.remove_fragments(self.root, relative, fragments), "applied")
                 result = (self.root / relative).read_text()
                 self.assertNotIn("sponsors", result)
                 self.assertNotIn("CrownOutlined", result)
@@ -120,10 +223,10 @@ class SponsorRemovalTests(unittest.TestCase):
 
     def test_menu_removal_is_idempotent(self):
         for relative, _, fragments in self.menus():
-            remover.remove_menu(self.root, relative, fragments)
+            remover.remove_fragments(self.root, relative, fragments)
             before = (self.root / relative).read_bytes()
             with patch.object(remover.os, "replace", side_effect=AssertionError("unexpected write")):
-                self.assertEqual(remover.remove_menu(self.root, relative, fragments), "already-applied")
+                self.assertEqual(remover.remove_fragments(self.root, relative, fragments), "already-applied")
             self.assertEqual((self.root / relative).read_bytes(), before)
 
     def test_changed_menu_or_reused_icon_is_rejected_without_writes(self):
@@ -134,7 +237,7 @@ class SponsorRemovalTests(unittest.TestCase):
                     path = self.root / relative
                     path.write_bytes(changed.encode())
                     with self.assertRaises(ValueError):
-                        remover.remove_menu(self.root, relative, fragments)
+                        remover.remove_fragments(self.root, relative, fragments)
                     self.assertEqual(path.read_bytes(), changed.encode())
                     self.assertEqual(list(path.parent.iterdir()), [path])
 
@@ -144,7 +247,7 @@ class SponsorRemovalTests(unittest.TestCase):
                 with self.subTest(path=relative, operation=operation):
                     with patch.object(remover.os, operation, side_effect=OSError("disk failure")):
                         with self.assertRaises(OSError):
-                            remover.remove_menu(self.root, relative, fragments)
+                            remover.remove_fragments(self.root, relative, fragments)
                     path = self.root / relative
                     self.assertEqual(path.read_bytes(), source.encode())
                     self.assertEqual(list(path.parent.iterdir()), [path])
@@ -199,6 +302,7 @@ class SponsorRemovalTests(unittest.TestCase):
 
     def invoke(self):
         output = self.root / "outputs"
+        output.unlink(missing_ok=True)
         result = subprocess.run(
             [sys.executable, "-B", str(SCRIPT), str(self.root)],
             env={**os.environ, "GITHUB_OUTPUT": str(output)},
@@ -212,11 +316,15 @@ class SponsorRemovalTests(unittest.TestCase):
         self.assertIn("status=applied\n", output)
         self.assertIn("sidebar_status=applied\n", output)
         self.assertIn("palette_status=applied\n", output)
+        for _, _, _, key in NEW_FILES:
+            self.assertIn(key + '=applied', output.splitlines())
         result, output = self.invoke()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("status=already-applied\n", output)
         self.assertIn("sidebar_status=already-applied\n", output)
         self.assertIn("palette_status=already-applied\n", output)
+        for _, _, _, key in NEW_FILES:
+            self.assertIn(key + '=already-applied', output.splitlines())
 
     def test_cli_reports_each_patch_separately_when_one_menu_changed(self):
         path = self.root / SIDEBAR
@@ -281,10 +389,36 @@ class SponsorRemovalTests(unittest.TestCase):
         release = next(step for step in steps if step["name"] == "Create release")
         self.assertIn("steps.sponsor_result.outputs.status || 'failed'", release["with"]["body"])
         self.assertIn("GITHUB_STEP_SUMMARY", report["run"])
-        for env_key, output_key in (("SIDEBAR_STATUS", "sidebar_status"), ("PALETTE_STATUS", "palette_status")):
+        for env_key, output_key in (("SIDEBAR_STATUS", "sidebar_status"), ("PALETTE_STATUS", "palette_status"),
+                                    ("API_ROUTES_STATUS", "api_routes_status"),
+                                    ("PAGE_ROUTE_STATUS", "page_route_status"), ("QUERY_STATUS", "query_status")):
             self.assertIn(f"steps.sponsors.outputs.{output_key}", report["env"][env_key])
             self.assertIn("steps.sponsors.outcome == 'success'", report["env"][env_key])
             self.assertIn(f"steps.sponsor_result.outputs.{output_key} || 'failed'", release["with"]["body"])
+            self.assertIn(f'record_status {output_key} ', report['run'])
+        env_keys = ('SPONSOR_STATUS', 'SIDEBAR_STATUS', 'PALETTE_STATUS',
+                    'API_ROUTES_STATUS', 'PAGE_ROUTE_STATUS', 'QUERY_STATUS')
+        output_keys = ('status', 'sidebar_status', 'palette_status',
+                       'api_routes_status', 'page_route_status', 'query_status')
+        scenarios = [(value,) * 6 for value in ('applied', 'already-applied', 'skipped', 'failed', '', 'unexpected')]
+        scenarios.append(('applied', 'skipped', 'already-applied', '', 'failed', 'applied'))
+        for values in scenarios:
+            with self.subTest(statuses=values):
+                output = self.root / 'report-output'
+                summary = self.root / 'report-summary'
+                output.unlink(missing_ok=True)
+                summary.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ['bash', '-c', report['run']], capture_output=True, text=True,
+                    env={**os.environ, **dict(zip(env_keys, values)),
+                         'GITHUB_OUTPUT': output.as_posix(), 'GITHUB_STEP_SUMMARY': summary.as_posix()},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = [value if value in ('applied', 'already-applied', 'skipped') else 'failed'
+                            for value in values]
+                self.assertEqual(output.read_text().splitlines(),
+                                 [f'{key}={value}' for key, value in zip(output_keys, expected)])
+                self.assertEqual(len(summary.read_text().splitlines()), 6)
 
 
 if __name__ == "__main__":

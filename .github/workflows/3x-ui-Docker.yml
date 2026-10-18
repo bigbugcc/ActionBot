@@ -79,6 +79,9 @@ jobs:
           SPONSOR_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.status || 'failed' }}
           SIDEBAR_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.sidebar_status || 'failed' }}
           PALETTE_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.palette_status || 'failed' }}
+          API_ROUTES_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.api_routes_status || 'failed' }}
+          PAGE_ROUTE_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.page_route_status || 'failed' }}
+          QUERY_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.query_status || 'failed' }}
         run: |
           record_status() {
             local key=$1 label=$2 status=$3
@@ -96,6 +99,9 @@ jobs:
           record_status status 'Sponsor API' "$SPONSOR_STATUS"
           record_status sidebar_status 'Sponsors sidebar menu' "$SIDEBAR_STATUS"
           record_status palette_status 'Sponsors command-palette entry' "$PALETTE_STATUS"
+          record_status api_routes_status 'Sponsors backend routes' "$API_ROUTES_STATUS"
+          record_status page_route_status 'Sponsors page route' "$PAGE_ROUTE_STATUS"
+          record_status query_status 'Sponsors frontend query' "$QUERY_STATUS"
 
       - name: Configure official build
         env:
@@ -247,6 +253,9 @@ jobs:
             Sponsor API patch: `${{ steps.sponsor_result.outputs.status || 'failed' }}`.
             Sponsors sidebar menu removal: `${{ steps.sponsor_result.outputs.sidebar_status || 'failed' }}`.
             Sponsors command-palette entry removal: `${{ steps.sponsor_result.outputs.palette_status || 'failed' }}`.
+            Sponsors backend routes removal: `${{ steps.sponsor_result.outputs.api_routes_status || 'failed' }}`.
+            Sponsors page route removal: `${{ steps.sponsor_result.outputs.page_route_status || 'failed' }}`.
+            Sponsors frontend query removal: `${{ steps.sponsor_result.outputs.query_status || 'failed' }}`.
             Skipped/failed patches may retain upstream advertisements or menu entries.
             Source commit time: `${{ steps.source.outputs.source_date }}`
             Workflow build time: `${{ steps.source.outputs.created }}`
