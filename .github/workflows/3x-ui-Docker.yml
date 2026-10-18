@@ -83,12 +83,17 @@ jobs:
           PAGE_ROUTE_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.page_route_status || 'failed' }}
           QUERY_STATUS: ${{ steps.sponsors.outcome == 'success' && steps.sponsors.outputs.query_status || 'failed' }}
         run: |
+          overall_status=applied
           record_status() {
             local key=$1 label=$2 status=$3
             case "$status" in
-              applied|already-applied|skipped) ;;
+              applied|already-applied) ;;
+              skipped)
+                if [[ "$overall_status" != failed ]]; then overall_status=skipped; fi
+                ;;
               *)
                 status=failed
+                overall_status=failed
                 echo "::warning::$label removal failed; normal build continues and upstream ads or menu entries may remain."
                 ;;
             esac
@@ -102,6 +107,7 @@ jobs:
           record_status api_routes_status 'Sponsors backend routes' "$API_ROUTES_STATUS"
           record_status page_route_status 'Sponsors page route' "$PAGE_ROUTE_STATUS"
           record_status query_status 'Sponsors frontend query' "$QUERY_STATUS"
+          printf 'overall_status=%s\n' "$overall_status" >> "$GITHUB_OUTPUT"
 
       - name: Configure official build
         env:
@@ -290,13 +296,7 @@ jobs:
           body: |
             Source: https://github.com/MHSanaei/3x-ui/commit/${{ steps.source.outputs.sha }}
             Source tag: `${{ steps.version.outputs.tag }}`
-            Sponsor API patch: `${{ steps.sponsor_result.outputs.status || 'failed' }}`.
-            Sponsors sidebar menu removal: `${{ steps.sponsor_result.outputs.sidebar_status || 'failed' }}`.
-            Sponsors command-palette entry removal: `${{ steps.sponsor_result.outputs.palette_status || 'failed' }}`.
-            Sponsors backend routes removal: `${{ steps.sponsor_result.outputs.api_routes_status || 'failed' }}`.
-            Sponsors page route removal: `${{ steps.sponsor_result.outputs.page_route_status || 'failed' }}`.
-            Sponsors frontend query removal: `${{ steps.sponsor_result.outputs.query_status || 'failed' }}`.
-            Skipped/failed patches may retain upstream advertisements or menu entries.
+            ${{ steps.sponsor_result.outcome == 'success' && steps.sponsor_result.outputs.overall_status == 'applied' && '🚀' || '' }}Sponsor and Ads patch: `${{ steps.sponsor_result.outcome == 'success' && steps.sponsor_result.outputs.overall_status || 'failed' }}`.
             Source commit time: `${{ steps.source.outputs.source_date }}`
             Workflow build time: `${{ steps.source.outputs.created }}`
             Image: `${{ env.docker-repo }}:${{ steps.source.outputs.version }}`

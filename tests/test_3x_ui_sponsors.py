@@ -370,7 +370,7 @@ class SponsorRemovalTests(unittest.TestCase):
             ["node", "-e", "const fs = require('fs'); const yaml = require('js-yaml'); "
              "console.log(JSON.stringify(yaml.load(fs.readFileSync(process.argv[1], 'utf8'))));",
              str(ROOT / ".github/workflows/3x-ui-Docker.yml")],
-            cwd=ROOT, capture_output=True, text=True,
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         steps = json.loads(result.stdout)["jobs"]["build"]["steps"]
@@ -387,22 +387,42 @@ class SponsorRemovalTests(unittest.TestCase):
         self.assertIn("steps.sponsors.outcome == 'success'", report["env"]["SPONSOR_STATUS"])
         self.assertIn("|| 'failed'", report["env"]["SPONSOR_STATUS"])
         release = next(step for step in steps if step["name"] == "Create release")
-        self.assertIn("steps.sponsor_result.outputs.status || 'failed'", release["with"]["body"])
+        body = release["with"]["body"]
+        self.assertIn(
+            "${{ steps.sponsor_result.outcome == 'success' && "
+            "steps.sponsor_result.outputs.overall_status == 'applied' && '🚀' || '' }}"
+            "Sponsor and Ads patch: `${{ steps.sponsor_result.outcome == 'success' && "
+            "steps.sponsor_result.outputs.overall_status || 'failed' }}`.", body,
+        )
+        self.assertEqual(body.count('Sponsor and Ads patch:'), 1)
+        self.assertNotIn('Sponsor API patch:', body)
+        self.assertNotIn(' removal:', body)
+        self.assertNotIn('Skipped/failed patches', body)
         self.assertIn("GITHUB_STEP_SUMMARY", report["run"])
         for env_key, output_key in (("SIDEBAR_STATUS", "sidebar_status"), ("PALETTE_STATUS", "palette_status"),
                                     ("API_ROUTES_STATUS", "api_routes_status"),
                                     ("PAGE_ROUTE_STATUS", "page_route_status"), ("QUERY_STATUS", "query_status")):
             self.assertIn(f"steps.sponsors.outputs.{output_key}", report["env"][env_key])
             self.assertIn("steps.sponsors.outcome == 'success'", report["env"][env_key])
-            self.assertIn(f"steps.sponsor_result.outputs.{output_key} || 'failed'", release["with"]["body"])
+            self.assertNotIn(f"steps.sponsor_result.outputs.{output_key}", body)
             self.assertIn(f'record_status {output_key} ', report['run'])
         env_keys = ('SPONSOR_STATUS', 'SIDEBAR_STATUS', 'PALETTE_STATUS',
                     'API_ROUTES_STATUS', 'PAGE_ROUTE_STATUS', 'QUERY_STATUS')
         output_keys = ('status', 'sidebar_status', 'palette_status',
                        'api_routes_status', 'page_route_status', 'query_status')
-        scenarios = [(value,) * 6 for value in ('applied', 'already-applied', 'skipped', 'failed', '', 'unexpected')]
-        scenarios.append(('applied', 'skipped', 'already-applied', '', 'failed', 'applied'))
-        for values in scenarios:
+        scenarios = [(('applied',) * 6, 'applied'), (('already-applied',) * 6, 'applied'),
+                     (('applied', 'already-applied') * 3, 'applied')]
+        for index in range(6):
+            for value, overall in (('skipped', 'skipped'), ('failed', 'failed'),
+                                   ('', 'failed'), ('unexpected', 'failed')):
+                values = ['applied'] * 6
+                values[index] = value
+                scenarios.append((tuple(values), overall))
+        scenarios.extend([
+            (('failed', 'skipped', 'applied', 'applied', 'applied', 'applied'), 'failed'),
+            (('skipped', 'applied', 'applied', 'applied', 'applied', 'failed'), 'failed'),
+        ])
+        for values, overall in scenarios:
             with self.subTest(statuses=values):
                 output = self.root / 'report-output'
                 summary = self.root / 'report-summary'
@@ -417,8 +437,13 @@ class SponsorRemovalTests(unittest.TestCase):
                 expected = [value if value in ('applied', 'already-applied', 'skipped') else 'failed'
                             for value in values]
                 self.assertEqual(output.read_text().splitlines(),
-                                 [f'{key}={value}' for key, value in zip(output_keys, expected)])
-                self.assertEqual(len(summary.read_text().splitlines()), 6)
+                                 [f'{key}={value}' for key, value in zip(output_keys, expected)]
+                                 + [f'overall_status={overall}'])
+                summary_lines = summary.read_text().splitlines()
+                self.assertEqual(len(summary_lines), 6)
+                for line, status in zip(summary_lines, expected):
+                    self.assertIn(f': `{status}`.', line)
+                    self.assertIn('Skipped or failed removal may retain upstream ads or menu entries.', line)
 
 
 if __name__ == "__main__":
