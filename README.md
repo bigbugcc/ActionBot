@@ -124,6 +124,9 @@ env:
 - 镜像标签跟随官方版本，例如 `bigbugcc/3x-ui:v3.9.0` 和 `bigbugcc/3x-ui:3.9.0`。所选版本为官方最新正式版时同时发布 `latest`；手动编译历史版本不会覆盖 `latest`，也不会将该次 Release 设为最新。
 - 自动触发通过 `repo_release: latest` 跟踪官方正式发布及其 tag 的源码 SHA；普通 `main` 提交不再触发 3x-ui 编译。自动触发会将检测到的版本传入 `version_tag`。
 - 构建先将官方 tag（包括 annotated tag）解析为固定 commit，再检出并核对 SHA。镜像 labels、Release 说明和 `source.json` 记录实际官方版本和源码 SHA；面板沿用官方版本信息。
+- 源码检出及 SHA 校验后执行 `python3 bin/3x-ui/remove_sponsors.py workdir`，仅在已知 `SponsorList` 类型和 `GetSponsors()` 函数精确匹配时，让赞助接口返回空列表。这样关闭登录页、仪表盘、赞助页及旧版侧栏中使用该接口的付费广告，并停止该调用路径上的远程广告清单和 Logo 拉取；保留 API、捐赠入口、MTProto `adTag` 和管理员配置的订阅横幅。
+- 脚本分别精确移除 `AppSidebar.tsx` 的赞助商菜单和 `CommandPalette.tsx` 的赞助商快捷入口，同时清理因此无用的图标导入、类型和映射。其他导航保持原样；图标新增用途或菜单结构变化时跳过该文件。本步骤不删除赞助页路由，已知地址仍可直接访问。
+- 三项补丁分别使用同目录临时文件及原子替换。某项遇到文件缺失、结构变化或写入失败时，保留该文件并警告、跳过，不影响其他项和正常构建；解释器或脚本异常也不会阻断构建。构建摘要和 Release 说明分别记录后端赞助接口、侧栏菜单和命令面板入口的 `applied`（已应用）、`already-applied`（已应用过或入口已不存在）、`skipped`（安全跳过）或 `failed`（脚本/状态记录失败），避免将部分成功误报为全部成功。`skipped`/`failed` 时广告或入口可能保留；状态仅说明已知补丁的执行结果，不保证未来新增广告已被覆盖。此可选补丁的容错不改变其他构建、架构校验和发布步骤的失败处理。
 - 构建首先推送唯一临时标签 `build-<run_id>-<attempt>`；五个平台校验和离线包导出成功后，才将同一镜像 digest 发布到对外标签，并核对发布后的 digest。校验失败不会更新 `latest` 或版本标签；Release 上传失败时已发布镜像仍然有效。
 - 镜像与 Release 发布成功后，按 Docker Hub 标签推送时间保留最近 **10 个版本标签**（`vX.Y.Z` 和 `X.Y.Z` 分别计数，通常约 5 个版本），`latest` 额外保留；重编历史版本按本次推送时间计入。清理同时删除本次成功构建的临时标签和本次构建开始前遗留的 `build-*` 标签，其他标签（如 `dev`、`sha-*`）保留。删除按标签名执行，不直接删除共享 digest；GitHub Release 和离线包不受影响。
 - 清理复用 `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`，其中 token 必须有 **Read, Write, Delete** 权限（[Docker PAT 文档](https://docs.docker.com/security/access-tokens/personal-access-tokens/)）。API 失败或标签列表不完整时停止清理并发出警告，已发布的镜像与 Release 仍有效；可能已完成部分删除，下次成功发布会再次清理。可修改 workflow 的 `keep_version_tags` 调整数量，或执行 `python3 bin/3x-ui/cleanup_tags.py --repo bigbugcc/3x-ui --keep 10` 只读预览版本标签清理计划。
