@@ -66,13 +66,30 @@ case ${1:-} in
     ;;
   build)
     export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-    # Match upstream's use of the actual compiler, rather than the SDK wrapper.
-    set -- "$TOOLCHAIN_DIR"/bin/*-gcc.br_real "${2:--w -s}"
-    if [[ $# != 2 || ! -x $1 ]]; then
-      echo "Expected exactly one Bootlin C compiler in $TOOLCHAIN_DIR/bin" >&2
+    phase=compiler-selection
+    # Bootlin also ships symlink aliases matching this glob. Select the real
+    # executable (including hard links), rather than counting aliases twice.
+    shopt -s nullglob
+    candidates=("$TOOLCHAIN_DIR"/bin/*-gcc.br_real)
+    shopt -u nullglob
+    compilers=()
+    for candidate in "${candidates[@]}"; do
+      if [[ -f $candidate && ! -L $candidate && -x $candidate ]]; then
+        compilers+=("$candidate")
+      fi
+    done
+    if [[ ${#compilers[@]} != 1 ]]; then
+      printf 'Expected exactly one real executable Bootlin C compiler in %s/bin; found %s\n' \
+        "$TOOLCHAIN_DIR" "${#compilers[@]}" >&2
+      echo 'Compiler candidates (including symlinks and non-executable files):' >&2
+      if [[ ${#candidates[@]} == 0 ]]; then
+        echo '  (none)' >&2
+      else
+        printf '  %s\n' "${candidates[@]}" >&2
+      fi
       exit 1
     fi
-    export CC=$1 CGO_ENABLED=1 GOOS=linux GOARCH=$TARGETARCH GOMAXPROCS=2
+    export CC=${compilers[0]} CGO_ENABLED=1 GOOS=linux GOARCH=$TARGETARCH GOMAXPROCS=2
     unset GOARM
     if [[ $TARGETARCH == arm ]]; then export GOARM=${TARGETVARIANT#v}; fi
     mkdir -p build
@@ -81,7 +98,7 @@ case ${1:-} in
     compiler_version=$("$CC" --version)
     printf 'compiler=%s version=%s\n' "$CC" "${compiler_version%%$'\n'*}"
     phase=compile
-    go build -v -p 2 -ldflags "$2 -linkmode external -extldflags '-static'" -o build/x-ui main.go
+    go build -v -p 2 -ldflags "${2:--w -s} -linkmode external -extldflags '-static'" -o build/x-ui main.go
     file build/x-ui
     phase=elf-check
     program_headers=$(readelf -l build/x-ui)

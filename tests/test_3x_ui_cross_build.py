@@ -32,8 +32,30 @@ tar() {
   printf 'extract\n' >> "$TEST_LOG"
   [[ "$TEST_MODE" != extract ]] || return 91
   mkdir -p "$TOOLCHAIN_DIR/bin"
+  [[ "$TEST_MODE" != compiler_missing ]] || return 0
+  if [[ "$TEST_MODE" == compiler_nonexec ]]; then
+    printf 'not executable\n' > "$TOOLCHAIN_DIR/bin/test-gcc.br_real"
+    chmod 644 "$TOOLCHAIN_DIR/bin/test-gcc.br_real"
+    return
+  fi
   printf '#!/bin/sh\nexit 0\n' > "$TOOLCHAIN_DIR/bin/test-gcc.br_real"
   chmod +x "$TOOLCHAIN_DIR/bin/test-gcc.br_real"
+  if [[ "$TEST_MODE" == compiler_hardlink ]]; then
+    mv "$TOOLCHAIN_DIR/bin/test-gcc.br_real" "$TOOLCHAIN_DIR/bin/test-cc.br_real"
+    ln "$TOOLCHAIN_DIR/bin/test-cc.br_real" "$TOOLCHAIN_DIR/bin/test-gcc.br_real"
+    [[ "$TOOLCHAIN_DIR/bin/test-cc.br_real" -ef "$TOOLCHAIN_DIR/bin/test-gcc.br_real" ]] || return 96
+  fi
+  # MSYS defaults to copying symlink targets. Use its symlink representation
+  # so Git Bash tests exercise -L; GNU ln on Linux creates a native symlink.
+  MSYS=winsymlinks:sys ln -s test-gcc.br_real "$TOOLCHAIN_DIR/bin/test-linux-gcc.br_real"
+  [[ -L "$TOOLCHAIN_DIR/bin/test-linux-gcc.br_real" ]] || return 96
+  case "$TEST_MODE" in
+    compiler_multiple)
+      cp "$TOOLCHAIN_DIR/bin/test-gcc.br_real" "$TOOLCHAIN_DIR/bin/other-gcc.br_real"
+      chmod +x "$TOOLCHAIN_DIR/bin/other-gcc.br_real" ;;
+    compiler_broken_link)
+      rm "$TOOLCHAIN_DIR/bin/test-gcc.br_real" ;;
+  esac
 }
 go() {
   if [[ "$1" == version ]]; then printf 'go version go1.27 linux/amd64\n'; return; fi
@@ -78,6 +100,7 @@ class CrossBuildTests(unittest.TestCase):
                 self.assertIn(f"{toolchain}--musl--stable-2025.08-1.tar.xz", trace)
                 self.assertIn(f"compile linux/{arch}/{goarm} cgo=1 procs=2", trace)
                 self.assertIn("test-gcc.br_real", trace)
+                self.assertRegex(trace, r"cc=\S*/test-gcc\.br_real args=")
                 self.assertIn("-p 2", trace)
                 self.assertIn("-X example.buildCommit=abc12345", trace)
                 self.assertIn("-linkmode external -extldflags '-static'", trace)
@@ -87,6 +110,27 @@ class CrossBuildTests(unittest.TestCase):
         result, trace = self.invoke("arm64")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("aarch64--musl", trace)
+
+    def test_real_compiler_can_be_a_hard_link_to_the_cc_entry(self):
+        result, trace = self.invoke("arm64", mode="compiler_hardlink")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(trace, r"cc=\S*/test-gcc\.br_real args=")
+
+    def test_invalid_compiler_layout_stops_before_go_and_lists_candidates(self):
+        for mode, count, candidate in (
+            ("compiler_missing", 0, "(none)"),
+            ("compiler_nonexec", 0, "test-gcc.br_real"),
+            ("compiler_multiple", 2, "other-gcc.br_real"),
+            ("compiler_broken_link", 0, "test-linux-gcc.br_real"),
+        ):
+            with self.subTest(mode=mode):
+                result, trace = self.invoke(mode=mode)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertNotIn("compile", trace)
+                self.assertNotIn("go version", result.stdout)
+                self.assertIn(f"found {count}", result.stderr)
+                self.assertIn(candidate, result.stderr)
+                self.assertIn("phase=compiler-selection", result.stderr)
 
     def test_unsupported_target_or_host_fails_before_download(self):
         for args in ({"arch": "arm", "variant": "v5"}, {"arch": "arm"},
