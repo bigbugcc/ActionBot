@@ -102,7 +102,7 @@ jobs:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           SOURCE_DATE: ${{ steps.source.outputs.source_date }}
           STABLE_BUILD: 'true'
-        run: bash bin/3x-ui/configure.sh workdir
+        run: bash bin/3x-ui/run-step.sh configure bash bin/3x-ui/configure.sh workdir
 
       - name: Docker metadata
         id: meta
@@ -130,6 +130,11 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
+        with:
+          # Two Go builds with -p 2 share the four-core runner.
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4.6.0
@@ -140,8 +145,13 @@ jobs:
       - name: Build and push staging image
         id: docker
         uses: docker/build-push-action@v7.4.0
+        env:
+          # BuildKit's separate build record includes per-stage compiler logs.
+          DOCKER_BUILD_SUMMARY: 'true'
+          DOCKER_BUILD_RECORD_UPLOAD: 'true'
         with:
           context: ./workdir
+          build-contexts: actionbot=./bin/3x-ui
           push: true
           pull: true
           platforms: ${{ env.platforms }}
@@ -165,7 +175,25 @@ jobs:
           SOURCE_DATE: ${{ steps.source.outputs.source_date }}
           BUILD_DATE: ${{ steps.source.outputs.created }}
         run: |
+          bash bin/3x-ui/run-step.sh export bash -euo pipefail <<'EXPORT'
           set -euo pipefail
+          platform=all
+          operation=metadata
+          cid=''
+          SECONDS=0
+          finish_export() {
+            status=$?
+            trap - EXIT
+            set +e
+            if [[ -n "$cid" ]]; then
+              timeout --kill-after=5s 20s docker rm -f "$cid" ||
+                echo '::warning::Export container cleanup failed'
+            fi
+            printf 'time=%s stage=export operation=%s platform=%s duration_s=%s exit_code=%s\n' \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$operation" "$platform" "$SECONDS" "$status"
+            exit "$status"
+          }
+          trap finish_export EXIT
           mkdir -p artifacts
           printf '%s\n' "$BUILD_METADATA" > artifacts/build-metadata.json
           jq -n --arg repository "$IMAGE_REPO" --arg digest "$IMAGE_DIGEST" \
@@ -184,6 +212,8 @@ jobs:
               armv6) arch=arm; variant=v6; binary_arch=arm32 ;;
             esac
             platform="linux/$arch${variant:+/$variant}"
+            operation=resolve-manifest
+            printf 'time=%s stage=export event=start platform=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$platform"
             # Resolve a single platform manifest; exclude SBOM/provenance manifests.
             child_digest=$(jq -er --arg arch "$arch" --arg variant "$variant" '
               [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch
@@ -192,21 +222,26 @@ jobs:
               | if length == 1 then .[0] else error("Expected one platform manifest") end
               ' artifacts/manifest.json)
             image="${IMAGE_REPO}@${child_digest}"
+            operation=pull
             docker pull --platform "$platform" "$image"
             local_tag="${IMAGE_REPO}:${IMAGE_VERSION}-${target}"
             docker tag "$image" "$local_tag"
             test "$(docker image inspect --format '{{.Architecture}}' "$local_tag")" = "$arch"
+            operation=runtime
+            bash bin/3x-ui/verify-runtime.sh "$local_tag" "$platform"
+            operation=extract
             cid=$(docker create --platform "$platform" --entrypoint /bin/sh "$local_tag")
             docker cp "$cid:/app/x-ui" "artifacts/x-ui-$target"
             docker cp "$cid:/app/bin/xray-linux-$binary_arch" "artifacts/xray-$target"
             if docker cp "$cid:/app/bin/mtg-linux-$binary_arch" "artifacts/mtg-$target"; then
               file "artifacts/mtg-$target"
             elif grep -q 'mtg-linux-' workdir/DockerInit.sh; then
-              docker rm "$cid"
               exit 1
             fi
             docker rm "$cid"
+            cid=''
             file "artifacts/xray-$target"
+            operation=elf-check
             case "$arch" in
               386) machine='Intel 80386' ;;
               amd64) machine='Advanced Micro Devices X86-64' ;;
@@ -219,18 +254,23 @@ jobs:
                 rm "$binary"
               fi
             done
+            operation=save
             docker save "$local_tag" | gzip > "artifacts/3x-ui-${target}-${IMAGE_VERSION}.tar.gz"
             # Removing the only tag also removes the digest reference.
             docker image rm "$local_tag"
+            printf 'time=%s stage=export event=verified platform=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$platform"
           done
+          platform=all
+          operation=checksums
           (cd artifacts && sha256sum *.tar.gz *.json > SHA256SUMS)
+          EXPORT
 
       - name: Publish verified image tags
         env:
           IMAGE_REPO: ${{ env.docker-repo }}
           IMAGE_DIGEST: ${{ steps.docker.outputs.digest }}
           PUBLISH_TAGS: ${{ steps.meta.outputs.tags }}
-        run: bash bin/3x-ui/publish.sh artifacts
+        run: bash bin/3x-ui/run-step.sh publish bash bin/3x-ui/publish.sh artifacts
 
       - name: Create release
         uses: softprops/action-gh-release@v3.0.3
@@ -282,3 +322,43 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: python3 bin/3x-ui/cleanup_tags.py --apply
+
+      - name: Collect build diagnostics
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          BUILD_OUTCOME: ${{ steps.docker.outcome }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_VERSION: ${{ steps.source.outputs.version }}
+          IMAGE_DIGEST: ${{ steps.docker.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics/3x-ui
+          {
+            printf 'time=%s job_status=%s build_outcome=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$JOB_STATUS" "$BUILD_OUTCOME"
+            printf 'source_sha=%s version=%s image_digest=%s\n' "$SOURCE_SHA" "$SOURCE_VERSION" "$IMAGE_DIGEST"
+            printf 'run=%s attempt=%s platforms=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$platforms"
+            printf 'cpus=%s\n' "$(nproc)"
+            free -h
+            df -h .
+            docker version || true
+            docker buildx version || true
+          } 2>&1 | tee diagnostics/3x-ui/context.log
+          for file in Dockerfile DockerInit.sh; do
+            if [[ -f "workdir/$file" ]]; then cp "workdir/$file" "diagnostics/3x-ui/$file"; fi
+          done
+          printf '3x-ui job: %s; build: %s. See diagnostic artifact and Docker build record for logs.\n' \
+            "$JOB_STATUS" "$BUILD_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: 3x-ui-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            diagnostics/3x-ui/
+            artifacts/build-metadata.json
+            artifacts/source.json
+            artifacts/manifest.json

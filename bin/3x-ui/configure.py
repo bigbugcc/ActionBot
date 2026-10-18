@@ -2,7 +2,11 @@
 
 import os
 import re
+import stat
 import sys
+import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -10,6 +14,48 @@ def replace_once(text, old, new, label):
     if text.count(old) != 1:
         raise ValueError(f"Upstream {label} changed; review the build patch")
     return text.replace(old, new, 1)
+
+
+def stage_file(path, content):
+    """Stage beside the destination so each replacement stays on one filesystem."""
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.actionbot-", dir=path.parent)
+    staged = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+        staged.chmod(stat.S_IMODE(path.stat().st_mode))
+        return staged
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+
+
+def write_configuration(files):
+    # This is not a crash-atomic multi-file transaction. Keep staged originals
+    # for recovery if a later replacement fails during this invocation.
+    staged, backups, replaced, retained = {}, {}, [], set()
+    try:
+        for path, content in files.items():
+            staged[path] = stage_file(path, content.encode("utf-8"))
+            backups[path] = stage_file(path, path.read_bytes())
+        for path in files:
+            os.replace(staged[path], path)
+            replaced.append(path)
+    except OSError as error:
+        failures = []
+        for path in reversed(replaced):
+            try:
+                os.replace(backups[path], path)
+            except OSError:
+                retained.add(backups[path])
+                failures.append(f"{path} (original retained at {backups[path]})")
+        if failures:
+            raise RuntimeError("Configuration rollback failed: " + "; ".join(failures)) from error
+        raise
+    finally:
+        for temporary in (*staged.values(), *backups.values()):
+            if temporary not in retained:
+                temporary.unlink(missing_ok=True)
 
 
 def configure(root):
@@ -22,26 +68,56 @@ def configure(root):
     if count != 1:
         raise ValueError("Expected exactly one upstream timezone setting")
 
-    docker = replace_once(docker, "ARG TARGETARCH\n", "ARG TARGETARCH\nARG TARGETVARIANT\n", "target architecture args")
+    # Bootlin SDKs need an amd64 glibc host. Keep upstream's Go version, but
+    # use its native Debian image for both compilation and resource downloads.
+    builder = re.search(r"^FROM golang:(\d+\.\d+(?:\.\d+)?)-alpine(?:\d+\.\d+)? AS builder$", docker, re.M)
+    if builder is None:
+        raise ValueError("Upstream Go builder image changed; review the build patch")
     docker = replace_once(
-        docker, "RUN go build ",
-        'RUN if [ "$TARGETARCH" = "arm" ]; then export GOARM="${TARGETVARIANT#v}"; fi; \\\n    go build ',
-        "Go ARM compilation",
+        docker, builder[0],
+        f"FROM --platform=$BUILDPLATFORM golang:{builder[1]} AS build-base",
+        "Go builder image",
     )
-
+    docker = replace_once(docker, "ARG TARGETARCH\n", "", "target architecture args")
+    # Normalize only whitespace/continuations in this known instruction. Do not
+    # silently discard new packages, shell operators, or apk flags.
+    packages = re.findall(r"^RUN apk --no-cache(?:[^\n]*\\\n)*[^\n]*", docker, re.M)
+    if len(packages) != 1 or re.sub(r"\\\n", " ", packages[0]).split() != [
+        "RUN", "apk", "--no-cache", "--update", "add", "build-base", "gcc", "curl", "unzip",
+    ]:
+        raise ValueError("Upstream native build tools changed; review the build patch")
+    docker = replace_once(
+        docker, packages[0],
+        "RUN apt-get update && apt-get install -y --no-install-recommends \\\n"
+        "  ca-certificates curl unzip xz-utils file binutils \\\n"
+        "  && rm -rf /var/lib/apt/lists/*\n\n"
+        "COPY --from=actionbot cross-build.sh /usr/local/bin/3x-ui-cross-build\n"
+        "RUN chmod +x /usr/local/bin/3x-ui-cross-build",
+        "native build tools",
+    )
     docker = replace_once(
         docker, "COPY . .",
-        "COPY go.mod go.sum ./\nRUN go mod download\n\nCOPY . .",
+        "COPY go.mod go.sum ./\nRUN go mod download\n\n"
+        "FROM build-base AS builder\nARG BUILDARCH\nARG TARGETOS\nARG TARGETARCH\nARG TARGETVARIANT\n"
+        "RUN /usr/local/bin/3x-ui-cross-build install\n\nCOPY . .",
         "Go source COPY",
     )
     docker = replace_once(
+        docker, 'RUN go build -ldflags "-w -s" -o build/x-ui main.go',
+        "RUN --mount=type=cache,id=3x-ui-go-${TARGETARCH}-${TARGETVARIANT},target=/root/.cache/go-build,sharing=locked \\\n"
+        '    /usr/local/bin/3x-ui-cross-build build "-w -s"',
+        "native Go cross-compilation",
+    )
+    docker = replace_once(
         docker, 'RUN ./DockerInit.sh "$TARGETARCH"',
-        'FROM builder AS resources\nARG TARGETVARIANT\nRUN ./DockerInit.sh "$TARGETARCH" "$TARGETVARIANT"',
+        'FROM build-base AS resources\nARG TARGETARCH\nARG TARGETVARIANT\n'
+        'COPY DockerInit.sh ./\nRUN ./DockerInit.sh "$TARGETARCH" "$TARGETVARIANT"',
         "DockerInit invocation",
     )
     docker = replace_once(
         docker, "COPY --from=builder /app/build/ /app/",
-        "COPY --from=resources /app/build/ /app/", "runtime resource COPY",
+        "COPY --from=resources /app/build/ /app/\nCOPY --from=builder /app/build/x-ui /app/x-ui",
+        "runtime resource COPY",
     )
 
     # Dev builds must advertise their actual source commit in the panel too.
@@ -64,7 +140,10 @@ def configure(root):
             f'-w -s -X {module[1]}/internal/config.buildCommit={sha[:8]} '
             f'-X {module[1]}/internal/config.buildDate={date}'
         )
-        docker = replace_once(docker, '-ldflags "-w -s"', f'-ldflags "{flags}"', "Go build flags")
+        docker = replace_once(
+            docker, '3x-ui-cross-build build "-w -s"',
+            f'3x-ui-cross-build build "{flags}"', "Go build flags",
+        )
 
     # BuildKit uses 386; runtime filenames are derived from runtime.GOARCH.
     init = replace_once(init, '    i386)\n        ARCH="32"', '    386 | i386)\n        ARCH="32"', "386 case")
@@ -94,12 +173,37 @@ def configure(root):
         '    *)\n        echo "Unsupported architecture: $1" >&2\n        exit 1\n        ;;',
         "architecture fallback",
     )
-    init = init.replace("curl -", "curl --retry 5 --retry-all-errors --retry-delay 3 -")
+    init = init.replace("curl -", "curl --show-error --retry 5 --retry-all-errors --retry-delay 3 -")
+    init = replace_once(
+        init, "set -e\n",
+        """set -e
+resource_started=$(date +%s)
+resource_platform="$1/${2:-}"
+resource_finish() {
+    resource_status=$?
+    trap - 0
+    printf 'time=%s stage=resources platform=%s duration_s=%s exit_code=%s\\n' \\
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$resource_platform" \\
+        "$(($(date +%s) - resource_started))" "$resource_status" >&2
+    exit "$resource_status"
+}
+trap resource_finish 0
+printf 'time=%s stage=resources event=start platform=%s\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$resource_platform" >&2
+""",
+        "resource logging prelude",
+    )
 
     # Validate every transformation before modifying either upstream file.
-    dockerfile.write_text(docker, encoding="utf-8", newline="\n")
-    initfile.write_text(init, encoding="utf-8", newline="\n")
+    write_configuration({dockerfile: docker, initfile: init})
+    print(f"stage=configure go={builder[1]} files=Dockerfile,DockerInit.sh", flush=True)
 
 
 if __name__ == "__main__":
-    configure(Path(sys.argv[1] if len(sys.argv) > 1 else "."))
+    started = time.monotonic()
+    status = 1
+    try:
+        configure(Path(sys.argv[1] if len(sys.argv) > 1 else "."))
+        status = 0
+    finally:
+        print(f"time={datetime.now(timezone.utc).isoformat()} stage=configure "
+              f"duration_s={time.monotonic() - started:.3f} exit_code={status}", file=sys.stderr)
