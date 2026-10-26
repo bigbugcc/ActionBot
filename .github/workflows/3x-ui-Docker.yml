@@ -223,6 +223,9 @@ jobs:
               armv7) arch=arm; variant=v7; binary_arch=arm32 ;;
               armv6) arch=arm; variant=v6; binary_arch=arm32 ;;
             esac
+            mtg_binary_arch=$binary_arch
+            # New upstream initializers use GOARCH for mtg, unlike Xray's arm32.
+            if grep -q 'MTG_BIN=' workdir/DockerInit.sh; then mtg_binary_arch=$arch; fi
             platform="linux/$arch${variant:+/$variant}"
             operation=resolve-manifest
             printf 'time=%s stage=export event=start platform=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$platform"
@@ -245,7 +248,7 @@ jobs:
             cid=$(docker create --platform "$platform" --entrypoint /bin/sh "$local_tag")
             docker cp "$cid:/app/x-ui" "artifacts/x-ui-$target"
             docker cp "$cid:/app/bin/xray-linux-$binary_arch" "artifacts/xray-$target"
-            if docker cp "$cid:/app/bin/mtg-linux-$binary_arch" "artifacts/mtg-$target"; then
+            if docker cp "$cid:/app/bin/mtg-linux-$mtg_binary_arch" "artifacts/mtg-$target"; then
               file "artifacts/mtg-$target"
             elif grep -q 'mtg-linux-' workdir/DockerInit.sh; then
               exit 1

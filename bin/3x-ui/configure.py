@@ -10,6 +10,55 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+# Upstream v3.11.0 (c621ba9014a6aa21fd7c9ecf45655e44e24ebf13).
+# Check the complete resource mapping before relying on its filenames.
+PLATFORM_RESOURCES = '''case $1 in
+    amd64 | "")
+        PLATFORM="amd64"
+        ;;
+    arm64 | armv8 | aarch64)
+        PLATFORM="arm64"
+        ;;
+    arm | arm32 | armv7)
+        PLATFORM="armv7"
+        if [ "$2" = "v6" ]; then
+            PLATFORM="armv6"
+        fi
+        ;;
+    armv6)
+        PLATFORM="armv6"
+        ;;
+    386 | i386)
+        PLATFORM="386"
+        ;;
+    *)
+        echo "DockerInit: unsupported architecture '$1'" >&2
+        exit 1
+        ;;
+esac
+case $PLATFORM in
+    amd64) XRAY_ZIP="64" ;;
+    arm64) XRAY_ZIP="arm64-v8a" ;;
+    armv7) XRAY_ZIP="arm32-v7a" ;;
+    armv6) XRAY_ZIP="arm32-v6" ;;
+    386) XRAY_ZIP="32" ;;
+esac
+# The panel looks binaries up by GOARCH; on arm Xray's is "arm32"
+# (internal/xray/process.go) and mtg's plain "arm", as install.sh renames them.
+case $PLATFORM in
+    armv7 | armv6)
+        XRAY_BIN="xray-linux-arm32"
+        MTG_BIN="mtg-linux-arm"
+        ;;
+    *)
+        XRAY_BIN="xray-linux-${PLATFORM}"
+        MTG_BIN="mtg-linux-${PLATFORM}"
+        ;;
+esac
+'''
+
+
+
 def replace_once(text, old, new, label):
     if text.count(old) != 1:
         raise ValueError(f"Upstream {label} changed; review the build patch")
@@ -108,8 +157,11 @@ def configure(root):
         '    /usr/local/bin/3x-ui-cross-build build "-w -s"',
         "native Go cross-compilation",
     )
+    invocation = re.search(r'^RUN \./DockerInit\.sh "\$TARGETARCH"(?: "\$TARGETVARIANT")?$', docker, re.M)
+    if invocation is None:
+        raise ValueError("Upstream DockerInit invocation changed; review the build patch")
     docker = replace_once(
-        docker, 'RUN ./DockerInit.sh "$TARGETARCH"',
+        docker, invocation[0],
         'FROM build-base AS resources\nARG TARGETARCH\nARG TARGETVARIANT\n'
         'COPY DockerInit.sh ./\nRUN ./DockerInit.sh "$TARGETARCH" "$TARGETVARIANT"',
         "DockerInit invocation",
@@ -145,34 +197,46 @@ def configure(root):
             f'3x-ui-cross-build build "{flags}"', "Go build flags",
         )
 
-    # BuildKit uses 386; runtime filenames are derived from runtime.GOARCH.
-    init = replace_once(init, '    i386)\n        ARCH="32"', '    386 | i386)\n        ARCH="32"', "386 case")
-    init = replace_once(init, 'FNAME="i386"', 'FNAME="386"', "386 filename")
-    init = init.replace('i386) MTGARCH="386"', '386 | i386) MTGARCH="386"')
-    init = replace_once(
-        init, '    armv7 | arm | arm32)\n        ARCH="arm32-v7a"\n        FNAME="arm32"\n        ;;',
-        '    armv7 | arm32)\n        ARCH="arm32-v7a"\n        FNAME="arm32"\n        ;;\n'
-        '    arm)\n        case ${2:-v7} in\n'
-        '            v6) ARCH="arm32-v6" ;;\n'
-        '            v7) ARCH="arm32-v7a" ;;\n'
-        '            *) echo "Unsupported ARM variant: $2" >&2; exit 1 ;;\n'
-        '        esac\n        FNAME="arm32"\n        ;;',
-        "ARM variant mapping",
-    )
-    init = replace_once(init, 'FNAME="armv6"', 'FNAME="arm32"', "ARM v6 filename")
-    if 'MTGARCH=' in init:
-        init = replace_once(
-            init, 'arm32) MTGARCH="armv7" ;;',
-            'arm32)\n        case $ARCH in\n'
-            '            arm32-v6) MTGARCH="armv6" ;;\n'
-            '            *) MTGARCH="armv7" ;;\n        esac\n        ;;',
-            "MTG ARM variant mapping",
+    # v3.11.0 separates platform, archive and runtime names. Older releases
+    # still need the checked 386/ARM corrections below.
+    if "case $PLATFORM in\n" in init:
+        platform_resources = PLATFORM_RESOURCES.replace(
+            '        if [ "$2" = "v6" ]; then\n            PLATFORM="armv6"\n        fi\n',
+            '        case ${2:-v7} in\n'
+            '            v6) PLATFORM="armv6" ;;\n'
+            '            v7) ;;\n'
+            '            *) echo "Unsupported ARM variant: $2" >&2; exit 1 ;;\n'
+            '        esac\n',
         )
-    init = replace_once(
-        init, '    *)\n        ARCH="64"\n        FNAME="amd64"\n        ;;',
-        '    *)\n        echo "Unsupported architecture: $1" >&2\n        exit 1\n        ;;',
-        "architecture fallback",
-    )
+        init = replace_once(init, PLATFORM_RESOURCES, platform_resources, "platform resource mapping")
+    else:
+        init = replace_once(init, '    i386)\n        ARCH="32"', '    386 | i386)\n        ARCH="32"', "386 case")
+        init = replace_once(init, 'FNAME="i386"', 'FNAME="386"', "386 filename")
+        init = init.replace('i386) MTGARCH="386"', '386 | i386) MTGARCH="386"')
+        init = replace_once(
+            init, '    armv7 | arm | arm32)\n        ARCH="arm32-v7a"\n        FNAME="arm32"\n        ;;',
+            '    armv7 | arm32)\n        ARCH="arm32-v7a"\n        FNAME="arm32"\n        ;;\n'
+            '    arm)\n        case ${2:-v7} in\n'
+            '            v6) ARCH="arm32-v6" ;;\n'
+            '            v7) ARCH="arm32-v7a" ;;\n'
+            '            *) echo "Unsupported ARM variant: $2" >&2; exit 1 ;;\n'
+            '        esac\n        FNAME="arm32"\n        ;;',
+            "ARM variant mapping",
+        )
+        init = replace_once(init, 'FNAME="armv6"', 'FNAME="arm32"', "ARM v6 filename")
+        if 'MTGARCH=' in init:
+            init = replace_once(
+                init, 'arm32) MTGARCH="armv7" ;;',
+                'arm32)\n        case $ARCH in\n'
+                '            arm32-v6) MTGARCH="armv6" ;;\n'
+                '            *) MTGARCH="armv7" ;;\n        esac\n        ;;',
+                "MTG ARM variant mapping",
+            )
+        init = replace_once(
+            init, '    *)\n        ARCH="64"\n        FNAME="amd64"\n        ;;',
+            '    *)\n        echo "Unsupported architecture: $1" >&2\n        exit 1\n        ;;',
+            "architecture fallback",
+        )
     init = init.replace("curl -", "curl --show-error --retry 5 --retry-all-errors --retry-delay 3 -")
     init = replace_once(
         init, "set -e\n",

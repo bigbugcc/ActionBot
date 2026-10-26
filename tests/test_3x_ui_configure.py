@@ -1,6 +1,7 @@
 """Check native cross-build configuration against pinned upstream source files."""
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
@@ -216,6 +217,82 @@ class ConfigureTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.configure()
                 self.assertEqual({path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}, before)
+
+    def test_v3_11_resources_match_all_five_platforms(self):
+        # Unmodified v3.11.0 source at c621ba9014a6aa21fd7c9ecf45655e44e24ebf13.
+        for name in ("Dockerfile", "DockerInit.sh"):
+            shutil.copyfile(FIXTURES / "v3.11.0" / name, self.root / name)
+        docker = self.configure()
+        resources = self.stages(docker)["resources"]
+        self.assertIn('RUN ./DockerInit.sh "$TARGETARCH" "$TARGETVARIANT"\n', resources)
+        self.assertNotIn('"$TARGETVARIANT" "$TARGETVARIANT"', resources)
+        init = (self.root / "DockerInit.sh").read_text()
+        selection = init.split("MTG_MULTI_VER=", 1)[0]
+        script = selection + '\nprintf "%s|%s|%s|%s" "$PLATFORM" "$XRAY_ZIP" "$XRAY_BIN" "$MTG_BIN"\n'
+        for arch, variant, expected in (
+            ("amd64", "", "amd64|64|xray-linux-amd64|mtg-linux-amd64"),
+            ("arm64", "v8", "arm64|arm64-v8a|xray-linux-arm64|mtg-linux-arm64"),
+            ("386", "", "386|32|xray-linux-386|mtg-linux-386"),
+            ("arm", "v6", "armv6|arm32-v6|xray-linux-arm32|mtg-linux-arm"),
+            ("arm", "v7", "armv7|arm32-v7a|xray-linux-arm32|mtg-linux-arm"),
+        ):
+            with self.subTest(arch=arch, variant=variant):
+                result = subprocess.run([BASH, "-c", script, "DockerInit.sh", arch, variant],
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+        for arch, variant in (("mips", ""), ("arm", "v5")):
+            with self.subTest(arch=arch, variant=variant):
+                result = subprocess.run([BASH, "-c", script, "DockerInit.sh", arch, variant],
+                                        capture_output=True, text=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsupported", result.stderr.lower())
+        self.assertIn("curl --show-error --retry", init)
+
+    def test_v3_11_unknown_resource_mapping_preserves_both_files(self):
+        original = (FIXTURES / "v3.11.0/DockerInit.sh").read_text()
+        for changed in (original.replace('386) XRAY_ZIP="32"', '386) XRAY_ZIP="64"'),
+                        original.replace('MTG_BIN="mtg-linux-arm"', 'MTG_BIN="mtg-linux-arm32"')):
+            with self.subTest(source=changed):
+                shutil.copyfile(FIXTURES / "v3.11.0/Dockerfile", self.root / "Dockerfile")
+                (self.root / "DockerInit.sh").write_text(changed)
+                before = {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
+                with self.assertRaisesRegex(ValueError, "Upstream .* changed"):
+                    self.configure()
+                self.assertEqual({path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}, before)
+
+    def test_export_uses_mtg_filenames_from_each_upstream_layout(self):
+        result = subprocess.run(
+            ["node", "-e", "console.log(JSON.stringify(require('js-yaml').load("
+             "require('fs').readFileSync(process.argv[1], 'utf8'))));",
+             str(ROOT / ".github/workflows/3x-ui-Docker.yml")],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        steps = json.loads(result.stdout)["jobs"]["build"]["steps"]
+        export = next(step for step in steps if step["name"] == "Export and verify offline images")["run"]
+        mapping = 'for target in ' + export.split('for target in ', 1)[1].split('operation=resolve-manifest', 1)[0]
+        # Exercise the actual export paths without a Docker daemon or image writes.
+        extraction = export.split('docker cp "$cid:/app/x-ui"', 1)[1].split('docker rm "$cid"', 1)[0]
+        extraction = extraction[extraction.index('docker cp "$cid:/app/bin/xray-'):]
+        workdir = self.root / "workdir"
+        workdir.mkdir()
+        for fixture in (FIXTURES, FIXTURES / "v3.11.0"):
+            shutil.copyfile(fixture / "DockerInit.sh", workdir / "DockerInit.sh")
+            for target in ("386", "amd64", "arm64", "armv7", "armv6"):
+                with self.subTest(layout=fixture.name, target=target):
+                    xray_arch = "arm32" if target.startswith("armv") else target
+                    mtg_arch = ("arm" if fixture.name == "v3.11.0" else "arm32") if target.startswith("armv") else target
+                    script = mapping + '\ncid=mock\n' + extraction + '\ndone\n'
+                    driver = ('docker() { [[ "$2" == "mock:/app/bin/xray-linux-$EXPECTED_XRAY" '
+                              '|| "$2" == "mock:/app/bin/mtg-linux-$EXPECTED_MTG" ]]; }\n'
+                              'file() { :; }\n' + script)
+                    # Only run this target while retaining the workflow's own mapping.
+                    driver = driver.replace('for target in 386 amd64 arm64 armv7 armv6;', f'for target in {target};')
+                    result = subprocess.run([BASH, "-e", "-c", driver], cwd=self.root,
+                                            env={**os.environ, "EXPECTED_XRAY": xray_arch, "EXPECTED_MTG": mtg_arch},
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
