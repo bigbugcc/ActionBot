@@ -1,11 +1,13 @@
 """Retain recent Docker Hub version tags after a verified publication.
 
-Uses Hub's tag API rather than deleting shared registry manifests by digest.
+Enumerates Registry tags and reads Hub metadata for push-time retention.
+Deletes Hub tags by name rather than deleting shared manifests by digest.
 Run without --apply to preview the cleanup; no credentials are needed for a
 public repository preview. Unknown tags are outside this workflow's ownership.
 """
 
 import argparse
+import base64
 from datetime import datetime
 import json
 import os
@@ -13,11 +15,17 @@ from pathlib import Path
 import re
 import sys
 from urllib.error import HTTPError
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 HUB = "https://hub.docker.com"
+REGISTRY = "https://registry-1.docker.io"
+AUTH = "https://auth.docker.io/token"
+MANIFEST_TYPES = ", ".join(("application/vnd.oci.image.index.v1+json",
+                            "application/vnd.docker.distribution.manifest.list.v2+json",
+                            "application/vnd.oci.image.manifest.v1+json",
+                            "application/vnd.docker.distribution.manifest.v2+json"))
 VERSION = re.compile(r"v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 STAGING = re.compile(r"build-[1-9][0-9]*-[1-9][0-9]*")
 TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
@@ -30,6 +38,83 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+class RegistryClient:
+    def __init__(self, repository):
+        if not REPOSITORY.fullmatch(repository):
+            raise ValueError("IMAGE_REPO must be a Docker Hub namespace/repository")
+        self.repository = repository
+        self.tags_path = f"/v2/{repository}/tags/list"
+        self.token = None
+        self.opener = build_opener(NoRedirect())
+
+    def login(self, username=None, secret=None):
+        query = urlencode({"service": "registry.docker.io", "scope": f"repository:{self.repository}:pull"})
+        headers = {"Accept": "application/json"}
+        if username and secret:
+            basic = base64.b64encode(f"{username}:{secret}".encode()).decode()
+            headers["Authorization"] = "Basic " + basic
+        try:
+            with self.opener.open(Request(AUTH + "?" + query, headers=headers), timeout=30) as response:
+                result = json.load(response)
+        except HTTPError as error:
+            raise ValueError(f"Registry authentication returned HTTP {error.code}") from None
+        token = (result.get("token") or result.get("access_token")) if isinstance(result, dict) else None
+        if not isinstance(token, str) or not token:
+            raise ValueError("Registry authentication returned no token")
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(f"::add-mask::{token}")
+        self.token = token
+
+    def request(self, method, path):
+        if not self.token:
+            self.login()
+        headers = {"Authorization": "Bearer " + self.token,
+                   "Accept": MANIFEST_TYPES if method == "HEAD" else "application/json",
+                   "User-Agent": "ActionBot-3x-ui"}
+        try:
+            with self.opener.open(Request(REGISTRY + path, method=method, headers=headers), timeout=30) as response:
+                return (None if method == "HEAD" else json.load(response)), response.headers
+        except HTTPError as error:
+            raise ValueError(f"Registry {method} {path} returned HTTP {error.code}; refusing cleanup") from None
+
+    def list_tags(self):
+        path = self.tags_path + "?n=100"
+        tags, visited = set(), set()
+        while path:
+            if path in visited:
+                raise ValueError("Registry pagination loop; refusing cleanup")
+            visited.add(path)
+            page, headers = self.request("GET", path)
+            if (not isinstance(page, dict) or page.get("name") != self.repository
+                    or not isinstance(page.get("tags"), list)):
+                raise ValueError("Invalid Registry tag listing; refusing cleanup")
+            for name in page["tags"]:
+                if not isinstance(name, str) or not TAG.fullmatch(name) or name in tags:
+                    raise ValueError("Invalid or duplicate Registry tag; refusing cleanup")
+                tags.add(name)
+            link = headers.get("Link")
+            path = None
+            if link:
+                match = re.fullmatch(r'\s*<([^<>]+)>\s*;\s*rel="?next"?\s*', link)
+                if not match or not page["tags"]:
+                    raise ValueError("Invalid Registry pagination Link; refusing cleanup")
+                parsed = urlparse(urljoin(REGISTRY + self.tags_path, match[1]))
+                if (parsed.scheme != "https" or parsed.netloc != "registry-1.docker.io"
+                        or parsed.path != self.tags_path or parsed.fragment):
+                    raise ValueError("Unexpected Registry pagination URL; refusing cleanup")
+                path = parsed.path + ("?" + parsed.query if parsed.query else "")
+        return sorted(tags)
+
+    def get_digest(self, name):
+        if not isinstance(name, str) or not TAG.fullmatch(name):
+            raise ValueError("Invalid Registry tag name")
+        _, headers = self.request("HEAD", f"/v2/{self.repository}/manifests/{name}")
+        digest = headers.get("Docker-Content-Digest", "")
+        if not DIGEST.fullmatch(digest):
+            raise ValueError(f"Registry tag {name} returned no valid digest; refusing cleanup")
+        return digest
+
+
 class HubClient:
     def __init__(self, repository):
         if not REPOSITORY.fullmatch(repository):
@@ -38,6 +123,7 @@ class HubClient:
         self.tags_path = f"/v2/namespaces/{namespace}/repositories/{name}/tags/"
         self.token = None
         self.opener = build_opener(NoRedirect())
+        self.registry = RegistryClient(repository)
 
     def request(self, method, path, data=None):
         headers = {"Accept": "application/json", "User-Agent": "ActionBot-3x-ui"}
@@ -66,42 +152,30 @@ class HubClient:
         if os.environ.get("GITHUB_ACTIONS") == "true":
             print(f"::add-mask::{token}")
         self.token = token
+        self.registry.login(username, secret)
 
     def list_tags(self):
-        path = self.tags_path + "?page_size=100"
-        tags, visited = {}, set()
-        while path:
-            if path in visited:
-                raise ValueError("Docker Hub pagination loop; refusing cleanup")
-            visited.add(path)
-            page = self.request("GET", path)
-            if not isinstance(page, dict) or not isinstance(page.get("results"), list):
-                raise ValueError("Invalid Docker Hub tag listing")
-            for item in page["results"]:
-                if not isinstance(item, dict):
-                    raise ValueError("Invalid Docker Hub tag record")
-                name = item.get("name", "")
-                if not isinstance(name, str) or not TAG.fullmatch(name) or name in tags:
-                    raise ValueError("Invalid or duplicate Docker Hub tag; refusing cleanup")
-                tags[name] = item
-            next_url = page.get("next")
-            if next_url:
-                parsed = urlparse(next_url)
-                if (parsed.scheme != "https" or parsed.netloc != "hub.docker.com"
-                        or parsed.path.rstrip("/") != self.tags_path.rstrip("/")
-                        or parsed.fragment):
-                    raise ValueError("Unexpected Docker Hub pagination URL")
-                path = parsed.path + ("?" + parsed.query if parsed.query else "")
-            else:
-                path = None
-            if not isinstance(page.get("count"), int) or page["count"] < 0:
-                raise ValueError("Invalid Docker Hub tag count")
-        if len(tags) != page["count"]:
-            raise ValueError("Docker Hub tag listing changed or is incomplete; refusing cleanup")
+        names = self.registry.list_tags()
+        tags = {}
+        for name in names:
+            # Unknown tags remain protected without needing their metadata.
+            tags[name] = (self.get_tag(name) if name == "latest" or VERSION.fullmatch(name)
+                          or STAGING.fullmatch(name) else {"name": name})
+        if names != self.registry.list_tags():
+            raise ValueError("Registry tag listing changed during metadata reads; refusing cleanup")
         return tags
 
     def get_tag(self, name):
-        return self.request("GET", self.tags_path + name + "/")
+        if not isinstance(name, str) or not TAG.fullmatch(name):
+            raise ValueError("Invalid Docker Hub tag name")
+        item = self.request("GET", self.tags_path + name + "/")
+        if (not isinstance(item, dict) or item.get("name") != name
+                or not isinstance(item.get("digest"), str) or not DIGEST.fullmatch(item["digest"])):
+            raise ValueError(f"Invalid Docker Hub metadata for {name}; refusing cleanup")
+        pushed_at(item)
+        if self.registry.get_digest(name) != item["digest"]:
+            raise ValueError(f"Registry and Docker Hub digest differ for {name}; refusing cleanup")
+        return item
 
     def delete_tag(self, name):
         # Tag-name deletion leaves other aliases for the same digest intact.

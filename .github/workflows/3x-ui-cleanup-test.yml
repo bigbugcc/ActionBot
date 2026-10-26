@@ -1,0 +1,47 @@
+name: 3x-ui cleanup validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      exercise_delete:
+        description: 'Create and delete one run-owned staging tag; preserve all existing tags'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 3x-ui-docker-publish
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run local regression suite on Linux
+        run: |
+          python3 -B -m unittest discover -s tests -p 'test_3x_ui_*.py' -v
+          node --test tests/test_3x_ui_trigger.js
+      - name: Validate real Registry enumeration and tag retention
+        timeout-minutes: 10
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          EXERCISE_DELETE: ${{ inputs.exercise_delete }}
+        run: |
+          args=()
+          if [[ "$EXERCISE_DELETE" == true ]]; then args+=(--exercise-delete); fi
+          python3 -B tests/verify_3x_ui_cleanup_remote.py "${args[@]}"
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: 3x-ui-cleanup-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: diagnostics/3x-ui-cleanup/report.json

@@ -4,9 +4,10 @@ from contextlib import redirect_stdout
 from datetime import datetime, timezone
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 import unittest
 
@@ -146,6 +147,8 @@ class HubApiTests(unittest.TestCase):
     def client(self, pages):
         client = retention.HubClient("example/3x-ui")
         client.calls = []
+        client.registry = Mock()
+        client.registry.get_digest.return_value = DIGEST
 
         def request(method, path, data=None):
             client.calls.append((method, path, data))
@@ -156,34 +159,54 @@ class HubApiTests(unittest.TestCase):
         client.request = request
         return client
 
-    def test_all_pages_are_collected_before_planning(self):
+    def test_registry_names_and_individual_metadata_replace_hub_listing(self):
         path = "/v2/namespaces/example/repositories/3x-ui/tags/"
-        client = self.client({path + "?page_size=100": {"count": 2, "results": [tag("v3.0.0")],
-                              "next": retention.HUB + path + "?page=2"},
-                              path + "?page=2": {"count": 2, "results": [tag("v3.1.0")], "next": None}})
-        self.assertEqual(set(client.list_tags()), {"v3.0.0", "v3.1.0"})
-        self.assertEqual(len(client.calls), 2)
+        client = self.client({path + "v3.0.0/": tag("v3.0.0"),
+                              path + "build-123-1/": tag("build-123-1"),
+                              path + "latest/": tag("latest"),
+                              path + "?page_size=100": {"count": 0, "results": [], "next": None}})
+        client.registry = Mock()
+        client.registry.get_digest.return_value = DIGEST
+        names = ["v3.0.0", "build-123-1", "latest", "dev"]
+        client.registry.list_tags.return_value = names
+        tags = client.list_tags()
+        self.assertEqual(set(tags), set(names))
+        self.assertEqual(tags["v3.0.0"]["digest"], DIGEST)
+        self.assertEqual(tags["dev"], {"name": "dev"})
+        self.assertTrue(all("?page" not in call[1] for call in client.calls))
+        self.assertEqual(len(client.calls), 3)
 
-    def test_bad_pagination_and_incomplete_list_fail_before_delete(self):
+    def test_changed_registry_snapshot_stops_before_delete(self):
         path = "/v2/namespaces/example/repositories/3x-ui/tags/"
-        for next_url in ("https://evil.example/tags/", retention.HUB + "/v2/namespaces/other/repositories/image/tags/",
-                         retention.HUB + path + "?page_size=100"):
-            client = self.client({path + "?page_size=100": {"count": 2, "results": [tag("v3.0.0")], "next": next_url}})
-            with self.subTest(next_url=next_url), self.assertRaises(ValueError):
+        client = self.client({path + "v3.0.0/": tag("v3.0.0")})
+        client.registry = Mock()
+        client.registry.get_digest.return_value = DIGEST
+        client.registry.list_tags.side_effect = [["v3.0.0"], ["v3.0.0", "v3.1.0"]]
+        with self.assertRaisesRegex(ValueError, "changed"):
+            retention.cleanup(client, 10, apply=True)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    def test_invalid_or_missing_individual_metadata_never_deletes(self):
+        path = "/v2/namespaces/example/repositories/3x-ui/tags/v3.0.0/"
+        for detail in (None, tag("v9.9.9"), {"name": "v3.0.0"},
+                       tag("v3.0.0", digest="invalid"),
+                       {**tag("v3.0.0"), "tag_last_pushed": None}, ValueError("HTTP 404")):
+            client = self.client({path: detail})
+            client.registry = Mock()
+            client.registry.list_tags.return_value = ["v3.0.0"]
+            with self.subTest(detail=detail), self.assertRaises(ValueError):
                 retention.cleanup(client, 10, apply=True)
             self.assertTrue(all(call[0] == "GET" for call in client.calls))
-        client = self.client({path + "?page_size=100": {"count": 2, "results": [tag("v3.0.0")], "next": None}})
-        with self.assertRaisesRegex(ValueError, "incomplete"):
-            client.list_tags()
 
-    def test_duplicate_tags_and_page_failure_fail_before_delete(self):
+    def test_registry_digest_change_is_detected_before_deletion(self):
         path = "/v2/namespaces/example/repositories/3x-ui/tags/"
-        for second_page in ({"count": 2, "results": [tag("v3.0.0")], "next": None}, ValueError("HTTP 429")):
-            client = self.client({path + "?page_size=100": {"count": 2, "results": [tag("v3.0.0")],
-                                  "next": retention.HUB + path + "?page=2"}, path + "?page=2": second_page})
-            with self.subTest(second_page=second_page), self.assertRaises(ValueError):
-                retention.cleanup(client, 10, apply=True)
-            self.assertTrue(all(call[0] == "GET" for call in client.calls))
+        client = self.client({path + name + "/": item for name, item in versions(2).items()})
+        client.registry = Mock()
+        client.registry.list_tags.return_value = list(versions(2))
+        client.registry.get_digest.return_value = OTHER
+        with redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "digest"):
+            retention.cleanup(client, 1, apply=True)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
     def test_login_uses_documented_token_exchange_and_masks_bearer(self):
         client = self.client({"/v2/auth/token": {"access_token": "derived-secret"}})
@@ -222,12 +245,91 @@ class HubApiTests(unittest.TestCase):
             login.assert_not_called()
             delete.assert_not_called()
 
-    def test_malformed_listing_is_rejected(self):
-        path = "/v2/namespaces/example/repositories/3x-ui/tags/?page_size=100"
-        for page in (None, [], {"count": 1, "results": [None]}, {"count": -1, "results": []}):
-            client = self.client({path: page})
+class Response(io.BytesIO):
+    def __init__(self, data, headers=None):
+        super().__init__(json.dumps(data).encode())
+        self.headers = headers or {}
+
+
+class RegistryApiTests(unittest.TestCase):
+    def client(self, pages):
+        client = retention.RegistryClient("example/3x-ui")
+        client.token = "registry-token"
+        self.calls = []
+
+        def open_request(request, timeout):
+            self.calls.append(request)
+            page = pages[request.full_url]
+            if isinstance(page, Exception):
+                raise page
+            return Response(*page)
+
+        client.opener.open = open_request
+        return client
+
+    def test_registry_pagination_collects_more_than_one_hundred_tags(self):
+        url = "https://registry-1.docker.io/v2/example/3x-ui/tags/list?n=100"
+        next_url = "/v2/example/3x-ui/tags/list?last=v3.0.99&n=100"
+        first = [f"v3.0.{i}" for i in range(100)]
+        client = self.client({url: ({"name": "example/3x-ui", "tags": first},
+                                   {"Link": f'<{next_url}>; rel="next"'}),
+                              "https://registry-1.docker.io" + next_url:
+                              ({"name": "example/3x-ui", "tags": ["v3.1.0"]}, {})})
+        self.assertEqual(set(client.list_tags()), set(first + ["v3.1.0"]))
+        self.assertEqual(len(self.calls), 2)
+
+    def test_untrusted_looping_or_malformed_links_are_rejected(self):
+        url = "https://registry-1.docker.io/v2/example/3x-ui/tags/list?n=100"
+        links = [f'<{url}>; rel="next"', '<https://evil.example/tags>; rel="next"',
+                 '<https://registry-1.docker.io/v2/other/image/tags/list?n=100>; rel="next"',
+                 '<http://registry-1.docker.io/v2/example/3x-ui/tags/list?n=2>; rel="next"',
+                 'invalid', '</v2/example/3x-ui/tags/list?n=2#fragment>; rel="next"']
+        for link in links:
+            client = self.client({url: ({"name": "example/3x-ui", "tags": ["v3.0.0"]}, {"Link": link})})
+            with self.subTest(link=link), self.assertRaises(ValueError):
+                client.list_tags()
+            self.assertLessEqual(len(self.calls), 1)
+
+    def test_duplicate_invalid_or_wrong_repository_records_are_rejected(self):
+        url = "https://registry-1.docker.io/v2/example/3x-ui/tags/list?n=100"
+        for page in (None, [], {"name": "other/image", "tags": []},
+                     {"name": "example/3x-ui", "tags": ["v3.0.0", "v3.0.0"]},
+                     {"name": "example/3x-ui", "tags": ["../latest"]},
+                     {"name": "example/3x-ui", "tags": "latest"}):
+            client = self.client({url: (page, {})})
             with self.subTest(page=page), self.assertRaises(ValueError):
                 client.list_tags()
+
+    def test_later_page_failure_does_not_return_partial_results(self):
+        url = "https://registry-1.docker.io/v2/example/3x-ui/tags/list?n=100"
+        next_url = url + "&last=v3.0.0"
+        client = self.client({url: ({"name": "example/3x-ui", "tags": ["v3.0.0"]},
+                                   {"Link": f'<{next_url}>; rel="next"'}),
+                              next_url: HTTPError(next_url, 429, "Too Many Requests", {}, None)})
+        with self.assertRaisesRegex(ValueError, "429"):
+            client.list_tags()
+
+    def test_digest_head_preserves_multiarch_content_negotiation(self):
+        url = "https://registry-1.docker.io/v2/example/3x-ui/manifests/latest"
+        client = self.client({url: ({}, {"Docker-Content-Digest": DIGEST})})
+        self.assertEqual(client.get_digest("latest"), DIGEST)
+        self.assertEqual(self.calls[0].get_method(), "HEAD")
+        self.assertIn("application/vnd.oci.image.index.v1+json", self.calls[0].get_header("Accept"))
+
+    def test_authentication_scopes_credentials_to_docker_auth_service(self):
+        client = retention.RegistryClient("example/3x-ui")
+        calls = []
+
+        def open_request(request, timeout):
+            calls.append(request)
+            return Response({"token": "pull-token"})
+
+        client.opener.open = open_request
+        client.login("example", "pat-secret")
+        self.assertEqual(client.token, "pull-token")
+        self.assertTrue(calls[0].full_url.startswith("https://auth.docker.io/token?"))
+        self.assertIn("repository%3Aexample%2F3x-ui%3Apull", calls[0].full_url)
+        self.assertTrue(calls[0].get_header("Authorization").startswith("Basic "))
 
 
 if __name__ == "__main__":
