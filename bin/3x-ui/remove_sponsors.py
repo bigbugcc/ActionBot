@@ -13,6 +13,15 @@ PALETTE = Path("frontend/src/components/command-palette/CommandPalette.tsx")
 API_ROUTES = Path("internal/web/controller/index.go")
 PAGE_ROUTES = Path("frontend/src/routes.tsx")
 QUERY = Path("frontend/src/api/queries/useSponsorsQuery.ts")
+PANEL_ROUTES = Path("frontend/src/routes/panelRoutes.tsx")
+SPONSOR_MARKERS = ("CrownOutlined", "'sponsors'", "'/sponsors'", "menu.sponsors")
+PANEL_ROUTE_FRAGMENTS = (
+    "  CrownOutlined,\n",
+    "const SponsorsPage = lazy(() => import('@/pages/sponsors/SponsorsPage'));\n",
+    "  { path: '/sponsors', titleKey: 'menu.sponsors', icon: CrownOutlined, component: SponsorsPage },\n",
+)
+PANEL_ROUTE_MARKERS = (*SPONSOR_MARKERS, "SponsorsPage")
+PALETTE_KEYWORDS_FRAGMENT = "  '/sponsors': ['sponsors', 'sponsor', 'partners'],\n"
 API_ROUTE_FRAGMENTS = (
     '\tg.GET("/sponsors", a.sponsors)\n',
     '\tg.GET("/sponsors/logo/:name", a.sponsorLogo)\n',
@@ -101,11 +110,9 @@ def remove_sponsors(root):
     return "applied"
 
 
-def remove_fragments(root, relative, fragments, markers=("CrownOutlined", "'sponsors'", "'/sponsors'", "menu.sponsors")):
-    path = root / relative
-    text = path.read_bytes().decode("utf-8")
+def without_fragments(text, relative, fragments, markers):
     if not any(marker in text for marker in markers):
-        return "already-applied"
+        return text
     replacement = text
     for fragment in fragments:
         if replacement.count(fragment) != 1:
@@ -114,8 +121,46 @@ def remove_fragments(root, relative, fragments, markers=("CrownOutlined", "'spon
     # If the icon or route gained another use, keep the whole file unchanged.
     if any(marker in replacement for marker in markers):
         raise ValueError(f"Upstream {relative.name} sponsor references changed; source was not modified")
+    return replacement
+
+
+def remove_fragments(root, relative, fragments, markers=SPONSOR_MARKERS):
+    path = root / relative
+    text = path.read_bytes().decode("utf-8")
+    replacement = without_fragments(text, relative, fragments, markers)
+    if replacement == text:
+        return "already-applied"
     atomic_replace(path, replacement.encode("utf-8"))
     return "applied"
+
+
+def remove_navigation(root, relative, legacy_fragments, markers=SPONSOR_MARKERS):
+    path = root / relative
+    text = path.read_bytes().decode("utf-8")
+    manifest_path = root / PANEL_ROUTES
+    if "PANEL_ROUTES" not in text and not manifest_path.exists():
+        return remove_fragments(root, relative, legacy_fragments, markers)
+    # Since v3.11.0 these consumers share one navigation/route manifest.
+    if (text.count("import { PANEL_ROUTES } from '@/routes/panelRoutes';\n") != 1
+            or text.count('PANEL_ROUTES.map((route) =>') != 1):
+        raise ValueError(f"Upstream {relative.name} route consumer changed; source was not modified")
+    fragments = (PALETTE_KEYWORDS_FRAGMENT,) if relative == PALETTE else ()
+    replacement = without_fragments(text, relative, fragments, markers)
+    manifest = manifest_path.read_bytes().decode("utf-8")
+    if (manifest.count('export const PANEL_ROUTES: PanelRoute[] = [\n') != 1
+            or manifest.count('export const PANEL_ROUTE_PATHS = PANEL_ROUTES.map((route) => route.path);\n') != 1):
+        raise ValueError("Upstream panelRoutes.tsx layout changed; source was not modified")
+    manifest_replacement = without_fragments(
+        manifest, PANEL_ROUTES, PANEL_ROUTE_FRAGMENTS, PANEL_ROUTE_MARKERS)
+    # Validate both sources before writing. Never infer success just because
+    # a consumer no longer declares its own sponsor link.
+    changed = False
+    for target, before, after in ((manifest_path, manifest, manifest_replacement),
+                                  (path, text, replacement)):
+        if after != before:
+            atomic_replace(target, after.encode("utf-8"))
+            changed = True
+    return "applied" if changed else "already-applied"
 
 
 def remove_api_routes(root):
@@ -124,7 +169,7 @@ def remove_api_routes(root):
 
 
 def remove_page_route(root):
-    return remove_fragments(
+    return remove_navigation(
         root, PAGE_ROUTES, PAGE_ROUTE_FRAGMENTS, ("SponsorsPage", "'sponsors'", "'/sponsors'"))
 
 
@@ -166,8 +211,8 @@ def main():
     results = {}
     for key, label, apply in (
         ("status", "Sponsor API", lambda: remove_sponsors(root)),
-        ("sidebar_status", "Sponsors sidebar menu", lambda: remove_fragments(root, SIDEBAR, SIDEBAR_FRAGMENTS)),
-        ("palette_status", "Sponsors command-palette entry", lambda: remove_fragments(root, PALETTE, PALETTE_FRAGMENTS)),
+        ("sidebar_status", "Sponsors sidebar menu", lambda: remove_navigation(root, SIDEBAR, SIDEBAR_FRAGMENTS)),
+        ("palette_status", "Sponsors command-palette entry", lambda: remove_navigation(root, PALETTE, PALETTE_FRAGMENTS)),
         ("api_routes_status", "Sponsors backend routes", lambda: remove_api_routes(root)),
         ("page_route_status", "Sponsors page route", lambda: remove_page_route(root)),
         ("query_status", "Sponsors frontend query", lambda: disable_query(root)),

@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +18,9 @@ SCRIPT = ROOT / "bin/3x-ui/remove_sponsors.py"
 TARGET = Path("internal/web/service/panel/sponsor.go")
 SIDEBAR = Path("frontend/src/layouts/AppSidebar.tsx")
 PALETTE = Path("frontend/src/components/command-palette/CommandPalette.tsx")
+PANEL_ROUTES = Path("frontend/src/routes/panelRoutes.tsx")
+MODERN_FIXTURES = ROOT / "tests/fixtures/3x-ui/v3.11.0"
+MODERN_FILES = (SIDEBAR, PALETTE, Path("frontend/src/routes.tsx"), PANEL_ROUTES)
 spec = importlib.util.spec_from_file_location("remove_sponsors", SCRIPT)
 remover = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(remover)
@@ -309,6 +314,97 @@ class SponsorRemovalTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         return result, output.read_text()
+
+    def modern_navigation(self):
+        # Unmodified upstream c621ba9014a6aa21fd7c9ecf45655e44e24ebf13 (v3.11.0).
+        for relative in MODERN_FILES:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(MODERN_FIXTURES / relative, path)
+        return {relative: (self.root / relative).read_bytes() for relative in MODERN_FILES}
+
+    def test_v3_11_removes_shared_route_and_palette_keywords_without_other_changes(self):
+        before = self.modern_navigation()
+        result, output = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('=skipped', output)
+        self.assertIn('sidebar_status=applied', output.splitlines())
+        self.assertIn('palette_status=applied', output.splitlines())
+        self.assertIn('page_route_status=already-applied', output.splitlines())
+        manifest = (self.root / PANEL_ROUTES).read_bytes()
+        expected = before[PANEL_ROUTES].replace(b'  CrownOutlined,\n', b'').replace(
+            b"const SponsorsPage = lazy(() => import('@/pages/sponsors/SponsorsPage'));\n", b'').replace(
+            b"  { path: '/sponsors', titleKey: 'menu.sponsors', icon: CrownOutlined, component: SponsorsPage },\n", b'')
+        self.assertEqual(manifest, expected)
+        paths = re.findall(rb"path: '([^']+)'", manifest)
+        self.assertEqual(paths, [path for path in re.findall(rb"path: '([^']+)'", before[PANEL_ROUTES])
+                                 if path != b'/sponsors'])
+        palette = (self.root / PALETTE).read_bytes()
+        self.assertEqual(palette, before[PALETTE].replace(
+            b"  '/sponsors': ['sponsors', 'sponsor', 'partners'],\n", b''))
+        for relative in (SIDEBAR, Path('frontend/src/routes.tsx')):
+            self.assertEqual((self.root / relative).read_bytes(), before[relative])
+        result, output = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('::warning::', result.stdout)
+        for key in ('sidebar_status', 'palette_status', 'page_route_status'):
+            self.assertIn(key + '=already-applied', output.splitlines())
+
+    def test_v3_11_page_route_patch_alone_removes_the_actual_shared_route(self):
+        self.modern_navigation()
+        self.assertEqual(remover.remove_page_route(self.root), 'applied')
+        self.assertNotIn(b'SponsorsPage', (self.root / PANEL_ROUTES).read_bytes())
+        with patch.object(remover, 'atomic_replace', side_effect=AssertionError('unexpected write')):
+            self.assertEqual(remover.remove_page_route(self.root), 'already-applied')
+
+    def test_v3_11_missing_or_changed_manifest_never_claims_navigation_is_removed(self):
+        original = (MODERN_FIXTURES / PANEL_ROUTES).read_bytes()
+        mutations = (None, b'export const PANEL_ROUTES = loadRoutes();\n',
+                     original.replace(b"path: '/sponsors'", b"path: '/partners'"),
+                     original + b'\nconst reusedIcon = CrownOutlined;\n', original + original)
+        for index, changed in enumerate(mutations):
+            with self.subTest(mutation=index):
+                self.modern_navigation()
+                manifest = self.root / PANEL_ROUTES
+                if changed is None:
+                    manifest.unlink()
+                else:
+                    manifest.write_bytes(changed)
+                before = {relative: (self.root / relative).read_bytes()
+                          for relative in MODERN_FILES if (self.root / relative).exists()}
+                result, output = self.invoke()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for key in ('sidebar_status', 'palette_status', 'page_route_status'):
+                    self.assertIn(key + '=skipped', output.splitlines())
+                self.assertEqual({relative: (self.root / relative).read_bytes()
+                                  for relative in MODERN_FILES if (self.root / relative).exists()}, before)
+
+    def test_v3_11_changed_route_consumer_is_skipped_without_editing_it(self):
+        for relative in (SIDEBAR, PALETTE, Path('frontend/src/routes.tsx')):
+            for old, new in ((b'PANEL_ROUTES.map(', b'PANEL_ROUTES.filter('),
+                             (b'PANEL_ROUTES', b'PANEL_PAGES')):
+                with self.subTest(path=relative, replacement=new):
+                    self.modern_navigation()
+                    path = self.root / relative
+                    changed = path.read_bytes().replace(old, new)
+                    path.write_bytes(changed)
+                    result, output = self.invoke()
+                    key = {SIDEBAR: 'sidebar_status', PALETTE: 'palette_status',
+                           Path('frontend/src/routes.tsx'): 'page_route_status'}[relative]
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(key + '=skipped', output.splitlines())
+                    self.assertEqual(path.read_bytes(), changed)
+
+    def test_v3_11_failed_shared_route_write_preserves_frontend_files(self):
+        before = self.modern_navigation()
+        for operation in ('fsync', 'replace'):
+            with self.subTest(operation=operation):
+                with patch.object(remover.os, operation, side_effect=OSError('disk failure')):
+                    with self.assertRaises(OSError):
+                        remover.remove_page_route(self.root)
+                self.assertEqual({relative: (self.root / relative).read_bytes()
+                                  for relative in MODERN_FILES}, before)
+                self.assertFalse(list((self.root / PANEL_ROUTES).parent.glob('.*.tmp')))
 
     def test_cli_reports_applied_and_repeated_results(self):
         result, output = self.invoke()
